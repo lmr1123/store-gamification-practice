@@ -1,0 +1,7 @@
+name = "store-practice-api"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# 部署后改为你的 GitHub Pages 地址，例如：https://yourname.github.io
+ALLOWED_ORIGIN = "https://lmr1123.github.io"

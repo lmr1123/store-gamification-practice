@@ -3,7 +3,7 @@
 //  XP 获得动画 / 星星动效 / 徽章解锁 / 分享/再练
 // ══════════════════════════════════════════════════════
 
-function ResultsScreen({ result = {}, from = 'quiz', onContinue, onPracticeAgain, character }) {
+function ResultsScreen({ result = {}, from = 'quiz', onContinue, onPracticeAgain, onReplay, character }) {
   const { score = 82, stars = 2, xp = 45, combo = 0 } = result;
   const { state: gs } = useGame();
 
@@ -193,13 +193,20 @@ function ResultsScreen({ result = {}, from = 'quiz', onContinue, onPracticeAgain
       }}>
         <button onClick={onPracticeAgain} style={{
           flex: 1, padding: 15, border: '2.5px solid var(--line)', borderRadius: 16,
-          background: 'var(--bg-1)', fontSize: 15, fontWeight: 800, cursor: 'pointer',
+          background: 'var(--bg-1)', fontSize: 14, fontWeight: 800, cursor: 'pointer',
           fontFamily: 'inherit', color: 'var(--ink-2)',
         }}>再练一次</button>
+        {onReplay && (from === 'ai' || from === 'replay') && (
+          <button onClick={onReplay} style={{
+            flex: 1, padding: 15, border: '2.5px solid var(--brand)', borderRadius: 16,
+            background: 'var(--brand-soft)', fontSize: 14, fontWeight: 800, cursor: 'pointer',
+            fontFamily: 'inherit', color: 'var(--brand-ink)',
+          }}>📽 查看回放</button>
+        )}
         <button onClick={onContinue} style={{
-          flex: 1.6, padding: 15, border: 0, borderRadius: 16,
+          flex: 1.4, padding: 15, border: 0, borderRadius: 16,
           background: 'var(--brand)', color: '#fff',
-          fontSize: 15, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit',
           boxShadow: 'var(--shadow-btn)',
         }}>继续闯关 →</button>
       </div>
