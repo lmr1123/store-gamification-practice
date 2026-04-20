@@ -1,7 +1,7 @@
 // 屏幕4：AI 数字人实时对练（核心差异化模块）
 // 支持语音 + 文字输入切换；脚本边界的角色扮演；实时提示要覆盖的关键信息点
 
-function AIPracticeScreen({ onComplete, avatarStyle = 'chibi' }) {
+function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
   const [mode, setMode] = React.useState('voice'); // 'voice' | 'text'
   const [messages, setMessages] = React.useState([
     { who: 'sys', text: '🎬 场景：王阿姨把 68 元的商品放在收银台。' },
@@ -79,7 +79,7 @@ function AIPracticeScreen({ onComplete, avatarStyle = 'chibi' }) {
   return (
     <div style={{ height: '100%', background: 'linear-gradient(180deg, #FFF4D6 0%, var(--bg-2) 30%)', display: 'flex', flexDirection: 'column' }}>
       {/* 顶部：场景信息 + 计时 */}
-      <AIPracticeHeader elapsed={elapsed} onClose={onComplete}/>
+      <AIPracticeHeader elapsed={elapsed} onClose={onBack || onComplete}/>
       {/* 对顾客"脸"的显示条 */}
       <CustomerStatusBar emotion={messages.slice().reverse().find(m=>m.who==='customer')?.emotion || 'neutral'} avatarStyle={avatarStyle}/>
       {/* 关键信息点覆盖清单 */}
