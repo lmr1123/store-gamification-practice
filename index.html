@@ -155,18 +155,18 @@ body { margin: 0; background: #0A0A0F; min-height: 100vh; display: flex; align-i
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="avatars.jsx?v=6"></script>
-<script type="text/babel" src="ui-kit.jsx?v=6"></script>
-<script type="text/babel" src="game-engine.jsx?v=6"></script>
-<script type="text/babel" src="screen-onboarding.jsx?v=6"></script>
-<script type="text/babel" src="screen-home.jsx?v=6"></script>
-<script type="text/babel" src="screen-story.jsx?v=6"></script>
-<script type="text/babel" src="screen-quiz.jsx?v=6"></script>
-<script type="text/babel" src="screen-ai-practice.jsx?v=6"></script>
-<script type="text/babel" src="screen-peer.jsx?v=6"></script>
-<script type="text/babel" src="screen-replay.jsx?v=6"></script>
-<script type="text/babel" src="screen-results.jsx?v=6"></script>
-<script type="text/babel" src="screen-profile-admin.jsx?v=6"></script>
+<script type="text/babel" src="avatars.jsx?v=7"></script>
+<script type="text/babel" src="ui-kit.jsx?v=7"></script>
+<script type="text/babel" src="game-engine.jsx?v=7"></script>
+<script type="text/babel" src="screen-onboarding.jsx?v=7"></script>
+<script type="text/babel" src="screen-home.jsx?v=7"></script>
+<script type="text/babel" src="screen-story.jsx?v=7"></script>
+<script type="text/babel" src="screen-quiz.jsx?v=7"></script>
+<script type="text/babel" src="screen-ai-practice.jsx?v=7"></script>
+<script type="text/babel" src="screen-peer.jsx?v=7"></script>
+<script type="text/babel" src="screen-replay.jsx?v=7"></script>
+<script type="text/babel" src="screen-results.jsx?v=7"></script>
+<script type="text/babel" src="screen-profile-admin.jsx?v=7"></script>
 
 <script type="text/babel">
 // ══════════════════════════════════════════════════
@@ -330,12 +330,10 @@ function ScreenRenderer() {
       <AIPracticeScreen
         avatarStyle={tweaks.avatarStyle}
         onComplete={(scoreResult) => {
-          // scoreResult 包含 score/stars/covered/missed/feedback_good/feedback_improve/conversation
+          // AI 对练结束 → 直接进回放页，跳过庆典弹窗
           const result = scoreResult || { score: 78, stars: 2, xp: 50 };
-          // XP = score * 0.6 四舍五入
           result.xp = result.xp || Math.round((result.score || 78) * 0.6);
-          // 存到 params 供 replay 页使用
-          replace('results', { result, from: 'ai', aiResult: result });
+          replace('replay', { aiResult: result });
         }}
         onBack={pop}
       />
@@ -350,8 +348,9 @@ function ScreenRenderer() {
     replay: (
       <ReplayScreen
         scoreData={params.aiResult || null}
-        onComplete={() => replace('results', { result: params.aiResult || { score: 82, stars: 2, xp: 45 }, from: 'replay' })}
+        onComplete={goHome}
         onBack={pop}
+        onPracticeAgain={() => replace('ai')}
       />
     ),
     results: (
