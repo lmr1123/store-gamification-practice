@@ -309,44 +309,40 @@ function ScreenRenderer() {
     home: (
       <HomeScreen
         character={character}
-        onStartScenario={(node) => push('story', { node })}
-        onGoProfile={() => push('profile')}
-        onGoLeaderboard={() => push('leaderboard')}
-        onGoAdmin={() => push('admin')}
+        onNav={(route, p) => push(route, p)}
       />
     ),
     story: (
       <StoryAnimation
         avatarStyle={tweaks.avatarStyle}
         node={params.node}
-        onComplete={() => push('quiz')}
+        onComplete={() => replace('quiz')}
         onBack={pop}
       />
     ),
     quiz: (
       <QuizScreen
-        quizStyle="dialog"
-        onComplete={(result) => push('results', { result, from: 'quiz' })}
+        onComplete={(result) => replace('results', { result, from: 'quiz' })}
         onBack={pop}
       />
     ),
     ai: (
       <AIPracticeScreen
         avatarStyle={tweaks.avatarStyle}
-        onComplete={(result) => push('results', { result, from: 'ai' })}
+        onComplete={(result) => replace('results', { result: result || { score: 78, stars: 2, xp: 50 }, from: 'ai' })}
         onBack={pop}
       />
     ),
     peer: (
       <PeerMatchScreen
         avatarStyle={tweaks.avatarStyle}
-        onComplete={() => push('replay')}
+        onComplete={() => replace('replay')}
         onBack={pop}
       />
     ),
     replay: (
       <ReplayScreen
-        onComplete={() => push('results', { result: { score: 82, stars: 2, xp: 45 }, from: 'replay' })}
+        onComplete={() => replace('results', { result: { score: 82, stars: 2, xp: 45 }, from: 'replay' })}
         onBack={pop}
       />
     ),
@@ -355,7 +351,10 @@ function ScreenRenderer() {
         result={params.result || { score: 82, stars: 2, xp: 45 }}
         from={params.from || 'quiz'}
         onContinue={goHome}
-        onPracticeAgain={pop}
+        onPracticeAgain={() => {
+          const back = { quiz:'quiz', ai:'ai', replay:'replay', story:'story' }[params.from] || 'quiz';
+          replace(back);
+        }}
         character={character}
       />
     ),
@@ -367,9 +366,7 @@ function ScreenRenderer() {
       />
     ),
     admin: (
-      <AdminDashboard
-        onBack={pop}
-      />
+      <AdminDashboard onBack={pop}/>
     ),
   };
 
