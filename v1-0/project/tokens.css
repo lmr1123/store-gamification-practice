@@ -1,0 +1,164 @@
+/* ========================================
+   门店对练系统 · 设计 Tokens
+   ======================================== */
+
+:root {
+  /* 主色系 · 药房场景 → 选择健康绿为主色，但调整到更年轻活泼 */
+  --brand: #14B87A;         /* 薄荷绿 — 主品牌色 */
+  --brand-ink: #0A7A50;     /* 深绿 */
+  --brand-soft: #E6F9F0;    /* 浅绿底 */
+  --brand-2: #FF9E44;       /* 琥珀橙 — 激励色 / 火焰 / 金币 */
+  --brand-3: #FFCE3C;       /* 金黄 — 星星 / 徽章 */
+
+  /* 语义色 */
+  --danger: #FF5B5B;        /* 错误 / 顾客流失 */
+  --success: #14B87A;
+  --info: #4E7BFF;          /* 老师讲解气泡 */
+  --warn: #FF9E44;
+
+  /* 顾客角色标签色（和药房场景相关的5类顾客） */
+  --customer-elder: #C99A6B;    /* 大妈 */
+  --customer-worker: #4E7BFF;   /* 上班族 */
+  --customer-chronic: #A67BD6;  /* 慢性病老人 */
+  --customer-young: #FF6FA4;    /* 年轻妈妈 */
+  --customer-picky: #FF8A3D;    /* 挑剔客 */
+
+  /* 中性色 */
+  --ink-1: #1A1F2C;
+  --ink-2: #4A5264;
+  --ink-3: #8A92A3;
+  --ink-4: #C3C8D1;
+  --bg-1: #FFFFFF;
+  --bg-2: #F7F8FA;
+  --bg-3: #EEF1F5;
+  --line: #E5E8ED;
+
+  /* 深色模式 */
+  --dark-bg-1: #0F1318;
+  --dark-bg-2: #171C24;
+  --dark-bg-3: #1F262F;
+  --dark-ink-1: #F2F4F8;
+  --dark-ink-2: #B8BFCC;
+  --dark-ink-3: #757C88;
+  --dark-line: #2A313B;
+
+  /* 字体 */
+  --font-sans: "PingFang SC", "HarmonyOS Sans SC", -apple-system, system-ui, "Helvetica Neue", sans-serif;
+  --font-display: "Chalkboard SE", "Kalam", "PingFang SC", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", monospace;
+
+  /* 圆角 · 游戏化大圆角 */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+  --r-pill: 9999px;
+
+  /* 阴影 · 模仿 Duolingo 那种"厚" */
+  --shadow-card: 0 1px 2px rgba(26,31,44,0.04), 0 4px 16px rgba(26,31,44,0.06);
+  --shadow-pop: 0 2px 0 rgba(0,0,0,0.08), 0 8px 24px rgba(20,184,122,0.22);
+  --shadow-press: 0 4px 0 #0A7A50, 0 6px 12px rgba(10,122,80,0.3);
+
+  /* 动效 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 主题变体（通过 data-theme 切换） */
+[data-theme="ocean"] {
+  --brand: #2BB3E0;
+  --brand-ink: #0A6B96;
+  --brand-soft: #E4F6FD;
+}
+[data-theme="violet"] {
+  --brand: #8A5CF6;
+  --brand-ink: #6B3FD0;
+  --brand-soft: #EFE9FD;
+}
+[data-theme="coral"] {
+  --brand: #FF6B6B;
+  --brand-ink: #C94545;
+  --brand-soft: #FFE8E8;
+}
+
+/* 深色模式 */
+[data-mode="dark"] {
+  --ink-1: var(--dark-ink-1);
+  --ink-2: var(--dark-ink-2);
+  --ink-3: var(--dark-ink-3);
+  --ink-4: #444B57;
+  --bg-1: var(--dark-bg-2);
+  --bg-2: var(--dark-bg-1);
+  --bg-3: var(--dark-bg-3);
+  --line: var(--dark-line);
+  --brand-soft: rgba(20,184,122,0.12);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink-1);
+  background: var(--bg-2);
+}
+
+/* 实用 class */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 12px; font-weight: 600;
+  background: var(--brand-soft); color: var(--brand-ink);
+}
+
+.btn-primary {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 14px 24px; border-radius: var(--r-lg);
+  font-family: inherit; font-size: 16px; font-weight: 700;
+  color: #fff; background: var(--brand);
+  box-shadow: 0 4px 0 var(--brand-ink);
+  transition: transform 0.08s var(--ease-spring), box-shadow 0.08s;
+}
+.btn-primary:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--brand-ink); }
+
+.btn-ghost {
+  appearance: none; cursor: pointer;
+  padding: 12px 20px; border-radius: var(--r-lg);
+  font-family: inherit; font-size: 15px; font-weight: 600;
+  color: var(--ink-2); background: var(--bg-3); border: 0;
+}
+
+.card {
+  background: var(--bg-1); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* 隐藏滚动条但保持滚动 */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* 通用动画 */
+@keyframes pop-in {
+  from { transform: scale(0.7); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes flame-flicker {
+  0%, 100% { transform: scale(1) rotate(-2deg); }
+  50% { transform: scale(1.08) rotate(2deg); }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(20,184,122,0.5); }
+  100% { box-shadow: 0 0 0 16px rgba(20,184,122,0); }
+}

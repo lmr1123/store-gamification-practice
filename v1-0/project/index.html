@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>门店员工游戏化对练系统 · 整体概览 Demo</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+body { margin: 0; background: #ECEEF3; min-height: 100vh; }
+.canvas-wrap { padding: 40px 40px 80px; }
+.canvas-header { text-align: center; margin-bottom: 28px; }
+.canvas-header h1 { font-size: 28px; font-weight: 900; margin: 0; color: #1A1F2C; letter-spacing: -0.5px; }
+.canvas-header .subtitle { color: #4A5264; margin-top: 6px; font-size: 14px; }
+.canvas-header .chips { display: inline-flex; gap: 6px; margin-top: 10px; }
+.canvas-header .chips span { background: #fff; color: #4A5264; font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid #E5E8ED; font-weight: 600; }
+.frame-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 32px; max-width: 1400px; margin: 0 auto; }
+.frame { display: flex; flex-direction: column; align-items: center; }
+.frame-label { font-size: 12px; font-weight: 800; color: #4A5264; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; text-align: center; }
+.frame-title { font-size: 16px; font-weight: 800; color: #1A1F2C; margin-bottom: 14px; text-align: center; }
+.frame-desc { font-size: 11px; color: #8A92A3; margin-top: 10px; text-align: center; max-width: 380px; line-height: 1.4; }
+.section-divider { grid-column: 1/-1; margin: 20px 0 -8px; font-size: 13px; font-weight: 800; color: #8A92A3; letter-spacing: 2px; text-transform: uppercase; text-align: center; position: relative; }
+.section-divider::before, .section-divider::after { content: ''; position: absolute; top: 50%; width: 30%; height: 1px; background: #D5DAE1; }
+.section-divider::before { left: 0; } .section-divider::after { right: 0; }
+
+/* PC 后台宽度调整 */
+.pc-wrap { grid-column: 1/-1; display: flex; justify-content: center; }
+
+/* Tweaks panel */
+#tweaks-panel {
+  position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+  width: 280px; background: #fff; border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+  border: 1px solid #E5E8ED; padding: 14px;
+  display: none; font-family: var(--font-sans);
+}
+#tweaks-panel.open { display: block; }
+#tweaks-panel h3 { margin: 0 0 10px; font-size: 14px; }
+#tweaks-panel .row { margin-bottom: 10px; }
+#tweaks-panel label { display: block; font-size: 11px; font-weight: 700; color: #4A5264; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+#tweaks-panel .seg { display: flex; gap: 4px; }
+#tweaks-panel .seg button { flex: 1; border: 0; padding: 6px 8px; font-size: 11px; border-radius: 8px; background: #F7F8FA; cursor: pointer; font-family: inherit; font-weight: 600; }
+#tweaks-panel .seg button.active { background: var(--brand); color: #fff; }
+#tweaks-panel .close { position: absolute; top: 8px; right: 8px; background: none; border: 0; cursor: pointer; font-size: 16px; color: #8A92A3; }
+#tweaks-fab {
+  position: fixed; bottom: 20px; right: 20px; z-index: 9998;
+  background: var(--brand); color: #fff; border: 0; padding: 12px 18px;
+  border-radius: 999px; font-weight: 800; font-size: 14px; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(20,184,122,0.4); font-family: var(--font-sans);
+  display: flex; align-items: center; gap: 6px;
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="avatars.jsx"></script>
+<script type="text/babel" src="ui-kit.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="browser-window.jsx"></script>
+<script type="text/babel" src="screen-home.jsx"></script>
+<script type="text/babel" src="screen-story.jsx"></script>
+<script type="text/babel" src="screen-quiz.jsx"></script>
+<script type="text/babel" src="screen-ai-practice.jsx"></script>
+<script type="text/babel" src="screen-replay.jsx"></script>
+<script type="text/babel" src="screen-profile-admin.jsx"></script>
+<script type="text/babel" src="screen-peer.jsx"></script>
+<script type="text/babel" src="screen-onboarding.jsx"></script>
+
+<script type="text/babel">
+const TWEAKS_DEFAULT = /*EDITMODE-BEGIN*/{
+  "theme": "default",
+  "mode": "light",
+  "avatarStyle": "chibi",
+  "quizStyle": "dialog",
+  "intensity": "explosion"
+}/*EDITMODE-END*/;
+
+// ─── 角色头像组件（用真实照片替代SVG占位） ───
+function CharAvatar({ character, size = 40, style: st = {} }) {
+  if (!character?.img) return <AvatarXiaomei size={size}/>;
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, ...st }}>
+      <img src={character.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+    </div>
+  );
+}
+
+// 覆盖 HomeHeader，注入真实角色
+function HomeHeaderWithChar({ character }) {
+  return (
+    <div style={{
+      padding: '54px 20px 16px', display: 'flex', alignItems: 'center', gap: 12,
+      background: 'linear-gradient(180deg, var(--brand-soft) 0%, var(--bg-2) 100%)',
+    }}>
+      {/* 工牌入口 */}
+      <div style={{ position: 'relative', cursor: 'pointer' }}>
+        <div style={{ width: 46, height: 46, borderRadius: 14, overflow: 'hidden', border: '2px solid var(--brand)', boxShadow: '0 2px 8px rgba(20,184,122,0.3)' }}>
+          <img src={character?.img || 'assets/avatar-female.png'} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+        </div>
+        <div style={{ position: 'absolute', bottom: -4, right: -4, background: 'var(--brand)', color: '#fff', fontSize: 8, fontWeight: 800, padding: '1px 4px', borderRadius: 999, border: '1.5px solid #fff', whiteSpace: 'nowrap' }}>实习生</div>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>早上好，</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink-1)' }}>{character?.nickname || character?.name || '小美'} 👋</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', background: '#fff', borderRadius: 999, boxShadow: 'var(--shadow-card)' }}>
+        <span style={{ animation: 'flame-flicker 1s infinite' }}>{Icon.flame(20)}</span>
+        <span style={{ fontWeight: 800, color: '#FF9E44' }}>7</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', background: '#fff', borderRadius: 999, boxShadow: 'var(--shadow-card)' }}>
+        {Icon.gem(18)}
+        <span style={{ fontWeight: 800, color: '#4E7BFF' }}>120</span>
+      </div>
+    </div>
+  );
+}
+
+// 带角色的 HomeScreen 封装
+function HomeScreenWithChar({ onStartScenario, character }) {
+  const [tab, setTab] = React.useState('map');
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-2)' }}>
+      <HomeHeaderWithChar character={character}/>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 100px' }} className="no-scrollbar">
+        <SkillMap onStartScenario={onStartScenario}/>
+      </div>
+      <BottomTabs tab={tab} setTab={setTab}/>
+    </div>
+  );
+}
+
+// 设备外壳简化：直接内嵌 iPhone 样式（不依赖导航栏）
+function PhoneShell({ children, width = 380, height = 780 }) {
+  return (
+    <div style={{
+      width, height, borderRadius: 44, overflow: 'hidden', position: 'relative',
+      background: '#000',
+      boxShadow: '0 30px 60px rgba(0,0,0,0.25), 0 0 0 10px #1A1F2C, 0 0 0 11px #2A313B',
+    }}>
+      <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', width: 110, height: 30, borderRadius: 20, background: '#000', zIndex: 100 }}/>
+      <div style={{ width: '100%', height: '100%', background: 'var(--bg-2)', position: 'relative', overflow: 'hidden' }}>
+        {children}
+      </div>
+      <div style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', width: 120, height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.3)', zIndex: 100 }}/>
+    </div>
+  );
+}
+
+// 场景 A: 连通原型（每个屏幕都可点击进入）
+function InteractivePrototype({ tweaks, character, onResetChar }) {
+  const [route, setRoute] = React.useState('home');
+  // 首次进入如果没有角色 → 先 onboarding
+  React.useEffect(() => { if (!character) setRoute('onboard'); }, [character]);
+
+  const views = {
+    onboard: <OnboardingGate onDone={c => { if (onResetChar) onResetChar(c); setRoute('home'); }} savedCharacter={character}/>,
+    home: <HomeScreenWithChar onStartScenario={() => setRoute('story')} character={character}/>,
+    story: <StoryAnimation onComplete={() => setRoute('quiz')} avatarStyle={tweaks.avatarStyle}/>,
+    quiz: <QuizScreen onComplete={() => setRoute('ai')} quizStyle={tweaks.quizStyle}/>,
+    ai: <AIPracticeScreen onComplete={() => setRoute('peer')} avatarStyle={tweaks.avatarStyle}/>,
+    peer: <PeerMatchScreen onComplete={() => setRoute('replay')} avatarStyle={tweaks.avatarStyle}/>,
+    replay: <ReplayScreen onComplete={() => setRoute('profile')}/>,
+    profile: <ProfileScreen onBack={() => setRoute('home')} intensity={tweaks.intensity} character={character}/>,
+  };
+  const labels = {
+    onboard: '⓪ 角色创建', home: '① 技能树', story: '② 剧情动画', quiz: '③ 闯关题',
+    ai: '④ AI 对练', peer: '⑤ 同伴对练', replay: '⑥ 回放评分', profile: '⑦ 成长',
+  };
+  const descriptions = {
+    onboard: '欢迎视频 → 选角色（小美/小强）→ 填昵称 → 专属电子工牌颁发 → 换装系统预告',
+    home: '首页 S 形技能路径 · 真实角色头像注入 · 连胜火焰 + 钻石 + 爱心',
+    story: '"皮皮朱朱"式剧情：冲突场景 → 老师讲解 → 学员选择分支（带角色配音）',
+    quiz: '对话气泡 / 连线匹配 / 排序 / 情景判断 —— 四种题型演示',
+    ai: '语音+文字双模式 · 情绪状态实时反馈 · 关键话术点清单',
+    peer: '真人随机配对 · 随机分店员/顾客角色 · 视频或语音 · 同伴压力胜过 AI',
+    replay: '时间轴 + 事件点 + AI 逐句点评 · 三颗星评分（不考核）',
+    profile: '徽章墙 · 连胜日历 · 门店练习榜（只统计次数）',
+  };
+  return (
+    <div>
+      {/* 快速跳转 */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 20, flexWrap: 'wrap', maxWidth: 520, margin: '0 auto 20px' }}>
+        {Object.entries(labels).map(([k, l]) => (
+          <button key={k} onClick={() => setRoute(k)} style={{
+            padding: '6px 10px', border: 0, borderRadius: 999, cursor: 'pointer',
+            background: route === k ? 'var(--brand)' : '#fff',
+            color: route === k ? '#fff' : 'var(--ink-2)',
+            fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-sans)',
+            border: route === k ? 0 : '1px solid var(--line)',
+          }}>{l}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <PhoneShell>{views[route]}</PhoneShell>
+      </div>
+      <div className="frame-desc" style={{ margin: '16px auto 0', maxWidth: 380 }}>{descriptions[route]}</div>
+    </div>
+  );
+}
+
+function App() {
+  const [tweaks, setTweaks] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('tweaks')) || TWEAKS_DEFAULT; } catch { return TWEAKS_DEFAULT; }
+  });
+  // 角色存 localStorage，跨刷新保持
+  const [character, setCharacter] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('character')) || null; } catch { return null; }
+  });
+  const [onboarded, setOnboarded] = React.useState(() => !!localStorage.getItem('character'));
+  const [tweakOpen, setTweakOpen] = React.useState(false);
+  const [editMode, setEditMode] = React.useState(false);
+
+  const handleOnboardDone = (c) => {
+    setCharacter(c);
+    localStorage.setItem('character', JSON.stringify(c));
+    setOnboarded(true);
+  };
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', tweaks.theme === 'default' ? '' : tweaks.theme);
+    document.documentElement.setAttribute('data-mode', tweaks.mode);
+    localStorage.setItem('tweaks', JSON.stringify(tweaks));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: tweaks }, '*');
+  }, [tweaks]);
+
+  React.useEffect(() => {
+    const h = (e) => {
+      if (e.data?.type === '__activate_edit_mode') { setEditMode(true); setTweakOpen(true); }
+      if (e.data?.type === '__deactivate_edit_mode') { setEditMode(false); setTweakOpen(false); }
+    };
+    window.addEventListener('message', h);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', h);
+  }, []);
+
+  const setT = (k, v) => setTweaks(t => ({ ...t, [k]: v }));
+
+  // Tweaks 里加"重置角色"
+  const resetCharacter = () => { localStorage.removeItem('character'); setCharacter(null); setOnboarded(false); };
+
+  return (
+    <div>
+      <div className="canvas-wrap">
+        <div className="canvas-header">
+          <h1>门店员工游戏化对练系统</h1>
+          <div className="subtitle">药房场景 × 情景感 × 反馈感 × 驱动感 —— 整体概览 Demo</div>
+          <div className="chips">
+            <span>📱 手机端 · 员工练习</span>
+            <span>💻 PC 端 · 管理员看数据</span>
+            <span>🎭 6 种顾客角色</span>
+            <span>🎯 5 个场景模块</span>
+          </div>
+        </div>
+        <div className="frame-grid">
+          {/* Section 1: 连通原型 */}
+          <div className="section-divider">手机端 · 完整跑通</div>
+          <div className="pc-wrap">
+            <div style={{ maxWidth: 520 }}>
+              <InteractivePrototype tweaks={tweaks} character={character} onResetChar={handleOnboardDone}/>
+            </div>
+          </div>
+
+          {/* Section 2: 关键页面对照 */}
+          <div className="section-divider">关键页面 · 并排对照</div>
+
+          <div className="frame">
+            <div className="frame-label">模块 A</div>
+            <div className="frame-title">剧情动画 · 老师讲解</div>
+            <PhoneShell><StoryAnimation onComplete={()=>{}} avatarStyle={tweaks.avatarStyle}/></PhoneShell>
+            <div className="frame-desc">30 秒冲突场景 → 老师暂停讲解 → 学员选择正确话术，分支决定顾客是否留下</div>
+          </div>
+
+          <div className="frame">
+            <div className="frame-label">模块 B</div>
+            <div className="frame-title">闯关题型 · 对话气泡</div>
+            <PhoneShell><QuizScreen onComplete={()=>{}} quizStyle={tweaks.quizStyle}/></PhoneShell>
+            <div className="frame-desc">4 种题型：对话气泡 / 连线 / 排序 / 情景判断，错答播放 10 秒对比动画</div>
+          </div>
+
+          <div className="frame">
+            <div className="frame-label">模块 C · 核心差异化</div>
+            <div className="frame-title">AI 数字人实时对练</div>
+            <PhoneShell><AIPracticeScreen onComplete={()=>{}} avatarStyle={tweaks.avatarStyle}/></PhoneShell>
+            <div className="frame-desc">语音+文字双模式 · 顾客情绪实时变化 · 6 大关键话术覆盖清单</div>
+          </div>
+
+          <div className="frame">
+            <div className="frame-label">模块 C+ · 同伴对练</div>
+            <div className="frame-title">真人随机配对</div>
+            <PhoneShell><PeerMatchScreen onComplete={()=>{}} avatarStyle={tweaks.avatarStyle}/></PhoneShell>
+            <div className="frame-desc">系统随机分配角色 · 视频/语音可选 · 练完可交换角色或重新匹配</div>
+          </div>
+
+          <div className="frame">
+            <div className="frame-label">模块 D</div>
+            <div className="frame-title">回放 + 三星评分</div>
+            <PhoneShell><ReplayScreen onComplete={()=>{}}/></PhoneShell>
+            <div className="frame-desc">时间轴事件点 · AI 逐句点评 · 不计入考核，只给个人成长参考</div>
+          </div>
+
+          <div className="frame">
+            <div className="frame-label">模块 E</div>
+            <div className="frame-title">我的成长 · 徽章 · 排行</div>
+            <PhoneShell><ProfileScreen onBack={()=>{}} intensity={tweaks.intensity} character={character}/></PhoneShell>
+            <div className="frame-desc">连胜火焰 · 徽章墙 · 门店练习榜（只看次数，避免内卷）</div>
+          </div>
+
+          <div className="frame">
+            <div className="frame-label">首页</div>
+            <div className="frame-title">技能树地图</div>
+            <PhoneShell><HomeScreen onStartScenario={()=>{}}/></PhoneShell>
+            <div className="frame-desc">Duolingo 式 S 形路径 · 收银办卡关在"Boss 关"位置 · 一眼看出进度</div>
+          </div>
+
+          {/* Section 3: PC 管理员后台 */}
+          <div className="section-divider">PC 端 · 门店经理后台</div>
+          <div className="pc-wrap">
+            <div style={{ width: 900, height: 560, borderRadius: 10, overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.2)', border: '1px solid var(--line)' }}>
+              <div style={{ height: 36, background: '#35363a', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 6 }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57' }}/>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#febc2e' }}/>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#28c840' }}/>
+                <div style={{ flex: 1, textAlign: 'center', color: '#9aa0a6', fontSize: 12 }}>admin.duilian.com — 朝阳大悦城店</div>
+              </div>
+              <div style={{ height: 'calc(100% - 36px)' }}>
+                <AdminDashboard/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tweaks */}
+      {!tweakOpen && <button id="tweaks-fab" onClick={() => setTweakOpen(true)}>⚙ Tweaks</button>}
+      <div id="tweaks-panel" className={tweakOpen ? 'open' : ''}>
+        <button className="close" onClick={() => setTweakOpen(false)}>✕</button>
+        <h3>🎨 Tweaks</h3>
+        {[
+          { k: 'theme', l: '主色调', opts: [['default','绿'],['ocean','蓝'],['violet','紫'],['coral','红']] },
+          { k: 'mode', l: '深浅模式', opts: [['light','浅色'],['dark','深色']] },
+          { k: 'avatarStyle', l: '角色风格', opts: [['chibi','Q版'],['realistic','写实'],['pixel','像素']] },
+          { k: 'quizStyle', l: '题型样式', opts: [['dialog','对话式'],['card','卡片式']] },
+          { k: 'intensity', l: '反馈强度', opts: [['mild','克制'],['medium','中度'],['explosion','爆炸']] },
+        ].map(r => (
+          <div key={r.k} className="row">
+            <label>{r.l}</label>
+            <div className="seg">
+              {r.opts.map(([v, l]) => (
+                <button key={v} className={tweaks[r.k] === v ? 'active' : ''} onClick={() => setT(r.k, v)}>{l}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {/* 重置角色 */}
+        <div className="row" style={{ borderTop: '1px solid #eee', paddingTop: 10, marginTop: 4 }}>
+          <label>角色</label>
+          {character ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <img src={character.img} style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--brand)' }}/>
+              <span style={{ fontSize: 12, fontWeight: 700, flex: 1 }}>{character.nickname || character.name}</span>
+              <button onClick={resetCharacter} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 8, border: '1px solid #eee', background: '#fff', cursor: 'pointer', color: '#8A92A3' }}>重选</button>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#8A92A3' }}>未创建角色</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

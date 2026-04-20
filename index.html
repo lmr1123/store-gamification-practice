@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>门店员工游戏化对练系统</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+/* iPhone 16 Pro 外壳 */
+body { margin: 0; background: #0A0A0F; min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: var(--font-sans, system-ui); }
+#root { display: flex; align-items: center; justify-content: center; width: 100vw; height: 100vh; }
+
+.phone-outer {
+  position: relative;
+  width: 393px;
+  height: 852px;
+  border-radius: 52px;
+  background: linear-gradient(160deg, #2A2D35 0%, #1A1D24 40%, #12151C 100%);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 0 0 2px rgba(0,0,0,0.8),
+    0 0 0 3px rgba(255,255,255,0.04),
+    0 40px 80px rgba(0,0,0,0.7),
+    0 0 60px rgba(0,0,0,0.5);
+  flex-shrink: 0;
+}
+
+/* 侧边按键 */
+.phone-outer::before {
+  content: '';
+  position: absolute;
+  right: -4px; top: 140px;
+  width: 4px; height: 80px;
+  background: linear-gradient(180deg, #2A2D35 0%, #3A3D45 50%, #2A2D35 100%);
+  border-radius: 0 3px 3px 0;
+  box-shadow: 0 50px 0 #2A2D35, 0 100px 0 #2A2D35;
+}
+.phone-outer::after {
+  content: '';
+  position: absolute;
+  left: -4px; top: 160px;
+  width: 4px; height: 48px;
+  background: linear-gradient(180deg, #2A2D35 0%, #3A3D45 50%, #2A2D35 100%);
+  border-radius: 3px 0 0 3px;
+  box-shadow: 0 58px 0 #2A2D35;
+}
+
+.phone-screen {
+  position: absolute;
+  inset: 6px;
+  border-radius: 47px;
+  overflow: hidden;
+  background: var(--bg-2, #F7F8FA);
+}
+
+/* 动态岛 */
+.dynamic-island {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 126px;
+  height: 37px;
+  background: #000;
+  border-radius: 20px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.di-camera { width: 12px; height: 12px; border-radius: 50%; background: #1a1a1a; border: 1.5px solid #333; position: relative; }
+.di-camera::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: radial-gradient(circle, #244 0%, #111 100%); }
+.di-mic { width: 8px; height: 8px; border-radius: 50%; background: #222; }
+
+/* Home Indicator */
+.home-indicator {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 134px;
+  height: 5px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 3px;
+  z-index: 1000;
+}
+
+/* 屏幕内容区 */
+.screen-content {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* 快速屏幕跳转（开发工具） */
+.dev-nav {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 99999;
+  background: rgba(0,0,0,0.7);
+  padding: 8px 12px;
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+}
+.dev-nav button {
+  background: rgba(255,255,255,0.1);
+  border: 0;
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.dev-nav button.active { background: var(--brand, #14B87A); color: #fff; }
+.dev-nav button:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+/* 深色模式背景适配 */
+[data-mode="dark"] .phone-outer { background: linear-gradient(160deg, #1A1D24 0%, #0F1218 100%); }
+[data-mode="dark"] .phone-screen { background: var(--bg-2, #0F1318); }
+
+/* Scale phone for small screens */
+@media (max-height: 900px) {
+  .phone-outer { transform: scale(0.9); transform-origin: center; }
+}
+@media (max-height: 800px) {
+  .phone-outer { transform: scale(0.8); transform-origin: center; }
+}
+@media (max-width: 500px) {
+  body { align-items: stretch; }
+  #root { align-items: stretch; }
+  .phone-outer {
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  .phone-screen { border-radius: 0 !important; inset: 0 !important; }
+  .dynamic-island { display: none; }
+  .dev-nav { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="avatars.jsx"></script>
+<script type="text/babel" src="ui-kit.jsx"></script>
+<script type="text/babel" src="game-engine.jsx"></script>
+<script type="text/babel" src="screen-onboarding.jsx"></script>
+<script type="text/babel" src="screen-home.jsx"></script>
+<script type="text/babel" src="screen-story.jsx"></script>
+<script type="text/babel" src="screen-quiz.jsx"></script>
+<script type="text/babel" src="screen-ai-practice.jsx"></script>
+<script type="text/babel" src="screen-peer.jsx"></script>
+<script type="text/babel" src="screen-replay.jsx"></script>
+<script type="text/babel" src="screen-results.jsx"></script>
+<script type="text/babel" src="screen-profile-admin.jsx"></script>
+
+<script type="text/babel">
+// ══════════════════════════════════════════════════
+//  SPA Router — 带过渡动画的路由栈
+// ══════════════════════════════════════════════════
+const RouterContext = React.createContext(null);
+
+function useRouter() {
+  return React.useContext(RouterContext);
+}
+
+function RouterProvider({ children }) {
+  const [stack, setStack] = React.useState(['onboard']);
+  const [transition, setTransition] = React.useState('none'); // none | forward | back
+  const [params, setParams] = React.useState({});
+
+  const currentRoute = stack[stack.length - 1];
+
+  const push = React.useCallback((route, p = {}) => {
+    setTransition('forward');
+    setParams(prev => ({ ...prev, ...p }));
+    setStack(s => [...s, route]);
+  }, []);
+
+  const replace = React.useCallback((route, p = {}) => {
+    setParams(prev => ({ ...prev, ...p }));
+    setStack(s => [...s.slice(0, -1), route]);
+  }, []);
+
+  const pop = React.useCallback(() => {
+    if (stack.length <= 1) return;
+    setTransition('back');
+    setStack(s => s.slice(0, -1));
+  }, [stack]);
+
+  const popTo = React.useCallback((route) => {
+    setTransition('back');
+    setStack(s => {
+      const idx = s.lastIndexOf(route);
+      return idx >= 0 ? s.slice(0, idx + 1) : [route];
+    });
+  }, []);
+
+  return (
+    <RouterContext.Provider value={{ route: currentRoute, stack, push, replace, pop, popTo, transition, params }}>
+      {children}
+    </RouterContext.Provider>
+  );
+}
+
+// ══════════════════════════════════════════════════
+//  角色 Context
+// ══════════════════════════════════════════════════
+const CharacterContext = React.createContext(null);
+
+function CharacterProvider({ children }) {
+  const [character, setCharacter] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('character_v2')) || null; } catch { return null; }
+  });
+
+  const saveCharacter = (c) => {
+    setCharacter(c);
+    localStorage.setItem('character_v2', JSON.stringify(c));
+  };
+
+  const resetCharacter = () => {
+    setCharacter(null);
+    localStorage.removeItem('character_v2');
+  };
+
+  return (
+    <CharacterContext.Provider value={{ character, saveCharacter, resetCharacter }}>
+      {children}
+    </CharacterContext.Provider>
+  );
+}
+
+function useCharacter() {
+  return React.useContext(CharacterContext);
+}
+
+// ══════════════════════════════════════════════════
+//  Tweaks (主题、模式切换)
+// ══════════════════════════════════════════════════
+const TWEAKS_DEFAULT = { theme: 'default', mode: 'light', avatarStyle: 'chibi', intensity: 'explosion' };
+
+const TweaksContext = React.createContext(null);
+function useTweaks() { return React.useContext(TweaksContext); }
+
+function TweaksProvider({ children }) {
+  const [tweaks, setTweaks] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('tweaks_v2')) || TWEAKS_DEFAULT; } catch { return TWEAKS_DEFAULT; }
+  });
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', tweaks.theme === 'default' ? '' : tweaks.theme);
+    document.documentElement.setAttribute('data-mode', tweaks.mode);
+    localStorage.setItem('tweaks_v2', JSON.stringify(tweaks));
+  }, [tweaks]);
+
+  const setT = (k, v) => setTweaks(t => ({ ...t, [k]: v }));
+
+  return (
+    <TweaksContext.Provider value={{ tweaks, setT }}>
+      {children}
+    </TweaksContext.Provider>
+  );
+}
+
+// ══════════════════════════════════════════════════
+//  Screen Renderer — 带入/出场动画
+// ══════════════════════════════════════════════════
+function ScreenRenderer() {
+  const { route, push, replace, pop, popTo, params } = useRouter();
+  const { character, saveCharacter, resetCharacter } = useCharacter();
+  const { tweaks } = useTweaks();
+  const { actions: gameActions } = useGame();
+  const [animClass, setAnimClass] = React.useState('screen-fade-in');
+
+  // 路由守卫：无角色 → onboard
+  React.useEffect(() => {
+    if (!character && route !== 'onboard') {
+      replace('onboard');
+    }
+  }, [character]);
+
+  const goHome = () => popTo('home');
+
+  const screens = {
+    onboard: (
+      <OnboardingGate
+        onDone={(c) => {
+          saveCharacter(c);
+          gameActions.checkIn();
+          replace('home');
+        }}
+        savedCharacter={character}
+      />
+    ),
+    home: (
+      <HomeScreen
+        character={character}
+        onStartScenario={(node) => push('story', { node })}
+        onGoProfile={() => push('profile')}
+        onGoLeaderboard={() => push('leaderboard')}
+        onGoAdmin={() => push('admin')}
+      />
+    ),
+    story: (
+      <StoryAnimation
+        avatarStyle={tweaks.avatarStyle}
+        node={params.node}
+        onComplete={() => push('quiz')}
+        onBack={pop}
+      />
+    ),
+    quiz: (
+      <QuizScreen
+        quizStyle="dialog"
+        onComplete={(result) => push('results', { result, from: 'quiz' })}
+        onBack={pop}
+      />
+    ),
+    ai: (
+      <AIPracticeScreen
+        avatarStyle={tweaks.avatarStyle}
+        onComplete={(result) => push('results', { result, from: 'ai' })}
+        onBack={pop}
+      />
+    ),
+    peer: (
+      <PeerMatchScreen
+        avatarStyle={tweaks.avatarStyle}
+        onComplete={() => push('replay')}
+        onBack={pop}
+      />
+    ),
+    replay: (
+      <ReplayScreen
+        onComplete={() => push('results', { result: { score: 82, stars: 2, xp: 45 }, from: 'replay' })}
+        onBack={pop}
+      />
+    ),
+    results: (
+      <ResultsScreen
+        result={params.result || { score: 82, stars: 2, xp: 45 }}
+        from={params.from || 'quiz'}
+        onContinue={goHome}
+        onPracticeAgain={pop}
+        character={character}
+      />
+    ),
+    profile: (
+      <ProfileScreen
+        character={character}
+        onBack={pop}
+        onGoAdmin={() => push('admin')}
+      />
+    ),
+    admin: (
+      <AdminDashboard
+        onBack={pop}
+      />
+    ),
+  };
+
+  const screen = screens[route];
+  if (!screen) return <div style={{ padding: 40, color: 'red' }}>Screen "{route}" not found</div>;
+
+  return (
+    <div className={animClass} key={route} style={{ position: 'absolute', inset: 0 }}>
+      {screen}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════
+//  Dev Nav — 屏幕快速跳转（开发时使用）
+// ══════════════════════════════════════════════════
+function DevNav() {
+  const { route, replace, push } = useRouter();
+  const { character } = useCharacter();
+  const [open, setOpen] = React.useState(false);
+
+  const screens = [
+    { key: 'onboard', label: '①入职' },
+    { key: 'home', label: '②首页' },
+    { key: 'story', label: '③剧情' },
+    { key: 'quiz', label: '④题目' },
+    { key: 'ai', label: '⑤AI练' },
+    { key: 'results', label: '⑥结果' },
+    { key: 'profile', label: '⑦成长' },
+    { key: 'admin', label: '⑧后台' },
+  ];
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          position: 'fixed', bottom: 16, right: 20, zIndex: 99999,
+          background: 'rgba(20,184,122,0.9)', color: '#fff', border: 0,
+          borderRadius: 999, padding: '8px 14px', fontSize: 12, fontWeight: 800,
+          cursor: 'pointer', backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 12px rgba(20,184,122,0.4)',
+        }}
+      >⚙ {open ? '收起' : 'Dev'}</button>
+
+      {open && (
+        <div className="dev-nav">
+          {screens.map(s => (
+            <button
+              key={s.key}
+              className={route === s.key ? 'active' : ''}
+              onClick={() => {
+                if (s.key === 'home' && !character) return;
+                replace(s.key);
+                setOpen(false);
+              }}
+            >{s.label}</button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════
+//  Tweaks Panel
+// ══════════════════════════════════════════════════
+function TweaksPanel() {
+  const { tweaks, setT } = useTweaks();
+  const { resetCharacter } = useCharacter();
+  const { actions } = useGame();
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <>
+      {open && (
+        <div style={{
+          position: 'fixed', bottom: 60, left: 20, zIndex: 99998,
+          width: 260, background: 'rgba(20,22,30,0.95)',
+          borderRadius: 18, padding: 16, color: '#fff',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          animation: 'slide-up 0.25s var(--ease-spring)',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 14, color: '#fff' }}>🎨 主题设置</div>
+          {[
+            { k: 'theme', l: '主色', opts: [['default','绿'], ['ocean','蓝'], ['violet','紫'], ['coral','红']] },
+            { k: 'mode', l: '模式', opts: [['light','浅色'], ['dark','深色']] },
+            { k: 'avatarStyle', l: '角色', opts: [['chibi','Q版'], ['realistic','写实'], ['pixel','像素']] },
+          ].map(row => (
+            <div key={row.k} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 }}>{row.l}</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {row.opts.map(([v, l]) => (
+                  <button key={v} onClick={() => setT(row.k, v)} style={{
+                    flex: 1, border: 0, padding: '7px 0', fontSize: 11, borderRadius: 8,
+                    background: tweaks[row.k] === v ? 'var(--brand)' : 'rgba(255,255,255,0.1)',
+                    color: tweaks[row.k] === v ? '#fff' : 'rgba(255,255,255,0.6)',
+                    cursor: 'pointer', fontWeight: 700, fontFamily: 'inherit',
+                  }}>{l}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 12, marginTop: 4, display: 'flex', gap: 8 }}>
+            <button onClick={resetCharacter} style={{ flex: 1, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: 'rgba(255,255,255,0.7)', padding: '8px 0', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>重选角色</button>
+            <button onClick={actions.resetGame} style={{ flex: 1, border: '1px solid rgba(255,0,0,0.3)', background: 'rgba(255,0,0,0.15)', color: '#FF6B6B', padding: '8px 0', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>重置数据</button>
+          </div>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          position: 'fixed', bottom: 16, left: 20, zIndex: 99999,
+          background: 'rgba(20,22,30,0.85)', color: 'rgba(255,255,255,0.7)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 999, padding: '8px 14px', fontSize: 12, fontWeight: 700,
+          cursor: 'pointer', backdropFilter: 'blur(8px)',
+        }}
+      >🎨</button>
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════
+//  App Root
+// ══════════════════════════════════════════════════
+function App() {
+  return (
+    <TweaksProvider>
+      <CharacterProvider>
+        <GameProvider>
+          <RouterProvider>
+            <div className="phone-outer">
+              <div className="dynamic-island">
+                <div className="di-camera"/>
+                <div className="di-mic"/>
+              </div>
+              <div className="phone-screen">
+                <div className="screen-content">
+                  <ScreenRenderer/>
+                </div>
+              </div>
+              <div className="home-indicator"/>
+            </div>
+            <RewardLayer/>
+            <DevNav/>
+            <TweaksPanel/>
+          </RouterProvider>
+        </GameProvider>
+      </CharacterProvider>
+    </TweaksProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
