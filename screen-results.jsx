@@ -149,35 +149,29 @@ function ResultsScreen({ result = {}, from = 'quiz', onContinue, onPracticeAgain
         <div style={{ background: '#fff', borderRadius: 18, padding: '14px 16px', boxShadow: 'var(--shadow-card)' }}>
           <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>💬 AI 快速点评</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ background: 'var(--brand-soft)', padding: '10px 12px', borderRadius: 12, fontSize: 13, color: 'var(--brand-ink)', lineHeight: 1.5, fontWeight: 600 }}>
-              👍 话术覆盖清晰，顾客成功办卡。量化到本单效果好。
-            </div>
-            <div style={{ background: '#FFF4E5', padding: '10px 12px', borderRadius: 12, fontSize: 13, color: '#C96E1A', lineHeight: 1.5, fontWeight: 600 }}>
-              💡 下次记得补充「次日生效」这一关键信息点。
-            </div>
+            {result.feedback_good ? (
+              <div style={{ background: 'var(--brand-soft)', padding: '10px 12px', borderRadius: 12, fontSize: 13, color: 'var(--brand-ink)', lineHeight: 1.5, fontWeight: 600 }}>
+                👍 {result.feedback_good}
+              </div>
+            ) : (
+              <div style={{ background: 'var(--brand-soft)', padding: '10px 12px', borderRadius: 12, fontSize: 13, color: 'var(--brand-ink)', lineHeight: 1.5, fontWeight: 600 }}>
+                👍 话术覆盖清晰，顾客成功办卡。量化到本单效果好。
+              </div>
+            )}
+            {result.feedback_improve ? (
+              <div style={{ background: '#FFF4E5', padding: '10px 12px', borderRadius: 12, fontSize: 13, color: '#C96E1A', lineHeight: 1.5, fontWeight: 600 }}>
+                💡 {result.feedback_improve}
+              </div>
+            ) : (
+              <div style={{ background: '#FFF4E5', padding: '10px 12px', borderRadius: 12, fontSize: 13, color: '#C96E1A', lineHeight: 1.5, fontWeight: 600 }}>
+                💡 下次记得补充「次日生效」这一关键信息点。
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 进步对比 */}
-        <div style={{ background: '#fff', borderRadius: 18, padding: '14px 16px', boxShadow: 'var(--shadow-card)' }}>
-          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>📈 进步轨迹</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--ink-3)' }}>74</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>上次</div>
-            </div>
-            <div style={{ flex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--brand)' }}>↑ +{score - 74} 分</div>
-              <div style={{ height: 6, width: '100%', background: 'var(--bg-3)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: 'var(--grad-brand)', borderRadius: 3, width: `${score}%`, transition: 'width 1s var(--ease-out)' }}/>
-              </div>
-            </div>
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--brand)' }}>{score}</div>
-              <div style={{ fontSize: 11, color: 'var(--brand)', marginTop: 2 }}>本次</div>
-            </div>
-          </div>
-        </div>
+        {/* 本次对话逐句回顾 */}
+        <ConversationReview result={result} />
       </div>
 
       {/* 底部 CTA */}
@@ -240,6 +234,88 @@ function Confetti({ active }) {
           animation: `confetti-fall ${1.2 + (p.id % 3) * 0.4}s ${p.delay} ease-in forwards`,
         }}/>
       ))}
+    </div>
+  );
+}
+
+// ─── 对话逐句回顾 ─────────────────────────────────────
+function ConversationReview({ result }) {
+  const { conversation = [], per_message = [], missed = [] } = result;
+
+  // 用 per_message 建立 clerk话术 → 点评 的映射
+  const noteMap = {};
+  (per_message || []).forEach(m => { if (m.text) noteMap[m.text] = m; });
+
+  const tagLabel = { good: '✓ 不错', great: '🌟 精彩', warn: '⚠ 漏点', bad: '✕ 有误' };
+  const tagColor = { good: 'var(--brand)', great: '#0aab60', warn: '#FF9E44', bad: 'var(--danger)' };
+
+  // 无对话数据时不展示
+  if (!conversation || conversation.filter(m => m.who === 'clerk').length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 18, padding: '14px 16px', boxShadow: 'var(--shadow-card)' }}>
+      <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 4 }}>📝 本次对话回顾</div>
+      {missed.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 12, fontWeight: 600 }}>
+          遗漏要点：{missed.map(m => <span key={m} style={{ background: '#FFF4E5', color: '#C96E1A', borderRadius: 6, padding: '1px 6px', marginRight: 4, fontWeight: 700 }}>{m}</span>)}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {conversation.filter(m => m.who === 'clerk' || m.who === 'customer').map((m, i) => {
+          const isClerk = m.who === 'clerk';
+          const meta = isClerk ? (noteMap[m.text] || null) : null;
+          const tag = meta?.tag || null;
+          const note = meta?.note || null;
+
+          const bubbleBg = isClerk
+            ? (tag === 'warn' ? '#FFF4E5' : tag === 'bad' ? '#FFF0F0' : tag === 'great' ? '#E8FAF3' : 'var(--brand-soft)')
+            : '#F2F4F7';
+          const bubbleBorder = isClerk
+            ? `1.5px solid ${tag ? tagColor[tag] + '55' : 'var(--brand)33'}`
+            : '1.5px solid var(--line)';
+
+          return (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: isClerk ? 'flex-end' : 'flex-start' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, flexDirection: isClerk ? 'row-reverse' : 'row', maxWidth: '90%' }}>
+                {/* 头像 */}
+                <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', border: `2px solid ${isClerk ? 'var(--brand)' : '#E0C8B0'}`, background: isClerk ? 'var(--brand-soft)' : '#FDF0E6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {isClerk ? <AvatarXiaomei size={28}/> : <AvatarElder size={28}/>}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: isClerk ? 'flex-end' : 'flex-start', gap: 3 }}>
+                  {/* 姓名 + 标签 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexDirection: isClerk ? 'row-reverse' : 'row' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: isClerk ? 'var(--brand-ink)' : '#A06030' }}>
+                      {isClerk ? '小美' : '王阿姨'}
+                    </span>
+                    {tag && (
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 5, background: `${tagColor[tag]}18`, color: tagColor[tag], border: `1px solid ${tagColor[tag]}44` }}>
+                        {tagLabel[tag]}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 气泡 */}
+                  <div style={{ padding: '8px 11px', background: bubbleBg, border: bubbleBorder, borderRadius: isClerk ? '14px 3px 14px 14px' : '3px 14px 14px 14px', fontSize: 13, color: 'var(--ink-1)', lineHeight: 1.5 }}>
+                    {m.text}
+                  </div>
+
+                  {/* AI 点评 */}
+                  {note && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, background: '#fff', borderRadius: 8, padding: '5px 8px', border: `1.5px solid ${tagColor[tag] || 'var(--line)'}33`, maxWidth: 210 }}>
+                      <span style={{ fontSize: 12, flexShrink: 0 }}>💬</span>
+                      <span style={{ fontSize: 11, color: 'var(--ink-2)', lineHeight: 1.4, fontWeight: 600 }}>{note}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
