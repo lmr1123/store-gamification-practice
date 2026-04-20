@@ -3,8 +3,8 @@
 
 // ⚙️ 配置：部署 Cloudflare Worker 后改为真实地址
 // 本地开发时留空，会使用 demo 模式
-const WORKER_URL = '';
-// const WORKER_URL = 'https://store-practice-api.你的账号.workers.dev';
+const WORKER_URL = 'http://localhost:8899';
+// 生产部署后改为 Cloudflare Worker 地址
 
 const SCENARIO = '收银场景·会员引导';
 const KEY_POINTS = [
@@ -63,7 +63,9 @@ async function callChat(apiMessages, onChunk) {
       if (data === '[DONE]') continue;
       try {
         const json = JSON.parse(data);
-        const delta = json.delta?.text || '';
+        // GLM/OpenAI 格式：choices[0].delta.content
+        // Anthropic 格式：delta.text（兼容两种）
+        const delta = json.choices?.[0]?.delta?.content || json.delta?.text || '';
         if (delta) { full += delta; onChunk(full); }
       } catch {}
     }
