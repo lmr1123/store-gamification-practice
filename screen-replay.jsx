@@ -156,26 +156,68 @@ function ReplayLine({ m, highlight, fmt }) {
   const isClerk = m.who === 'clerk';
   const tagLabel = { good: '✓ 不错', great: '🌟 精彩', warn: '⚠ 漏点', bad: '✕ 有误' };
   const tagColor = { good: 'var(--brand)', great: '#14B87A', warn: '#FF9E44', bad: 'var(--danger)' };
+
+  // 气泡颜色
+  const bubbleBg = isClerk
+    ? (m.tag === 'warn' ? '#FFF4E5' : m.tag === 'bad' ? '#FFF0F0' : 'var(--brand-soft)')
+    : '#F2F4F7';
+  const bubbleBorder = highlight ? '2px solid #FFCE3C' : isClerk ? `1.5px solid ${m.tag ? tagColor[m.tag]+'55' : 'var(--brand)33'}` : '1.5px solid var(--line)';
+
   return (
-    <div style={{
-      marginBottom: 10, padding: 10,
-      background: highlight ? '#FFF4D6' : '#fff',
-      border: highlight ? '2px solid #FFCE3C' : '1px solid var(--line)',
-      borderRadius: 14, transition: '0.2s',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--ink-3)' }}>{fmt(m.t)}</span>
-        <span style={{ fontSize: 11, fontWeight: 700, color: isClerk ? 'var(--brand-ink)' : '#C94747' }}>{isClerk ? '小美' : '王阿姨'}</span>
-        {m.tag && (
-          <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 6, background: `${tagColor[m.tag]}22`, color: tagColor[m.tag] }}>
-            {tagLabel[m.tag]}
-          </span>
-        )}
+    <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', alignItems: isClerk ? 'flex-end' : 'flex-start' }}>
+      {/* 时间戳 */}
+      <div style={{ fontSize: 9, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', marginBottom: 4, paddingLeft: isClerk ? 0 : 44, paddingRight: isClerk ? 44 : 0 }}>
+        {fmt(m.t)}
       </div>
-      <div style={{ fontSize: 13, color: 'var(--ink-1)', lineHeight: 1.4 }}>
-        {m.tag === 'warn' ? <span>{m.text.split('花茶')[0]}<mark style={{ background: '#FFD6A5', padding: '0 2px', borderRadius: 3 }}>花茶</mark>{m.text.split('花茶')[1]}</span> : m.text}
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: isClerk ? 'row-reverse' : 'row', maxWidth: '88%' }}>
+        {/* 头像 */}
+        <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', border: `2px solid ${isClerk ? 'var(--brand)' : '#E0C8B0'}`, background: isClerk ? 'var(--brand-soft)' : '#FDF0E6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isClerk ? <AvatarXiaomei size={36}/> : <AvatarElder size={36}/>}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: isClerk ? 'flex-end' : 'flex-start', gap: 4 }}>
+          {/* 姓名 + 标签 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexDirection: isClerk ? 'row-reverse' : 'row' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: isClerk ? 'var(--brand-ink)' : '#A06030' }}>{isClerk ? '小美' : '王阿姨'}</span>
+            {m.tag && (
+              <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 6, background: `${tagColor[m.tag]}20`, color: tagColor[m.tag], border: `1px solid ${tagColor[m.tag]}44` }}>
+                {tagLabel[m.tag]}
+              </span>
+            )}
+          </div>
+
+          {/* 气泡 */}
+          <div style={{
+            padding: '9px 13px',
+            background: bubbleBg,
+            border: bubbleBorder,
+            borderRadius: isClerk ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
+            boxShadow: highlight ? '0 0 0 3px rgba(255,206,60,0.3)' : 'var(--shadow-card)',
+            transition: 'all 0.2s',
+          }}>
+            <div style={{ fontSize: 13, color: 'var(--ink-1)', lineHeight: 1.5 }}>
+              {m.tag === 'warn'
+                ? <span>{m.text.split('花茶')[0]}<mark style={{ background: '#FFD6A5', padding: '0 2px', borderRadius: 3 }}>花茶</mark>{m.text.split('花茶')[1] || ''}</span>
+                : m.text}
+            </div>
+          </div>
+
+          {/* AI 点评（仅店员有） */}
+          {m.note && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 6,
+              background: '#fff', borderRadius: 10,
+              padding: '7px 10px',
+              border: `1.5px solid ${tagColor[m.tag]}33`,
+              maxWidth: 240,
+            }}>
+              <span style={{ fontSize: 14, flexShrink: 0 }}>💬</span>
+              <span style={{ fontSize: 11, color: 'var(--ink-2)', lineHeight: 1.5, fontWeight: 600 }}>{m.note}</span>
+            </div>
+          )}
+        </div>
       </div>
-      {m.note && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4, paddingLeft: 8, borderLeft: `3px solid ${tagColor[m.tag]}` }}>💬 {m.note}</div>}
     </div>
   );
 }
