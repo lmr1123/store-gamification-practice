@@ -29,10 +29,13 @@ function OnboardingGate({ onDone, savedCharacter }) {
   );
   const [character, setCharacter] = React.useState(savedCharacter || null);
 
-  if (phase === 'done' && character) {
-    onDone(character);
-    return null;
-  }
+  React.useEffect(() => {
+    if (phase === 'done' && character) {
+      onDone(character);
+    }
+  }, [phase, character]);
+
+  if (phase === 'done') return null;
 
   return (
     <div style={{ height: '100%', background: '#0F1318', position: 'relative', overflow: 'hidden' }}>

@@ -5,7 +5,7 @@
 
 function HomeScreen({ character, onNav }) {
   // onNav(route, params) — 推入新路由
-  const [tab, setTab] = React.useState('home');
+  const [tab, setTab] = React.useState('drill');
   const { state: gs, derived } = useGame();
 
   return (
@@ -798,9 +798,9 @@ function RankSection() {
 // ══════════════════════════════════════════════════════
 function BottomNav({ tab, setTab }) {
   const tabs = [
-    { id: 'home',   label: '首页', emoji: '🏠' },
     { id: 'drill',  label: '对练', emoji: '⚡' },
     { id: 'review', label: '回顾', emoji: '📊' },
+    { id: 'home',   label: '技能', emoji: '🗺' },
     { id: 'me',     label: '我的', emoji: '🌟' },
   ];
   return (
