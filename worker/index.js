@@ -5,11 +5,14 @@
  * Routes:
  *   POST /api/chat   — 流式对话（AI 顾客角色扮演）
  *   POST /api/score  — 对话完成后结构化评分
+ *   POST /api/transcribe — 语音转文字（麦克风录音）
  */
 
 const GLM_API = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+const GLM_ASR_API = 'https://open.bigmodel.cn/api/paas/v4/audio/transcriptions';
 const MODEL_CHAT  = 'glm-4-flash';   // 免费，速度快，对话用
 const MODEL_SCORE = 'glm-4-flash';   // 评分也用 flash，够用
+const MODEL_ASR   = 'glm-asr-2512';
 
 // ──────────────────────────────────────────────
 // CORS
@@ -54,6 +57,7 @@ export default {
     try {
       if (url.pathname === '/api/chat')  return handleChat(request, origin, env);
       if (url.pathname === '/api/score') return handleScore(request, origin, env);
+      if (url.pathname === '/api/transcribe') return handleTranscribe(request, origin, env);
       return jsonResp({ error: 'Not found' }, 404, origin, env);
     } catch (err) {
       console.error(err);
@@ -124,6 +128,39 @@ async function handleChat(request, origin, env) {
       ...corsHeaders(origin, env),
     },
   });
+}
+
+// ──────────────────────────────────────────────
+// POST /api/transcribe — 语音转文字
+// ──────────────────────────────────────────────
+async function handleTranscribe(request, origin, env) {
+  const body = await request.json();
+  const audioBase64 = String(body?.audioBase64 || '').replace(/^data:audio\/[^;]+;base64,/, '').trim();
+  const hotwords = Array.isArray(body?.hotwords) ? body.hotwords : [];
+
+  if (!audioBase64) return jsonResp({ error: 'audioBase64 required' }, 400, origin, env);
+
+  const form = new FormData();
+  form.set('model', MODEL_ASR);
+  form.set('stream', 'false');
+  form.set('file_base64', audioBase64);
+  if (hotwords.length) form.set('prompt', `热词：${hotwords.slice(0, 50).join('、')}`);
+
+  const resp = await fetch(GLM_ASR_API, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.GLM_API_KEY}`,
+    },
+    body: form,
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`GLM ASR error ${resp.status}: ${err}`);
+  }
+
+  const data = await resp.json();
+  return jsonResp({ text: data?.text || '' }, 200, origin, env);
 }
 
 // ──────────────────────────────────────────────

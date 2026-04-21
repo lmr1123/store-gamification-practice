@@ -81,6 +81,21 @@ async function callScore(conversation) {
   return resp.json();
 }
 
+async function callTranscribe(audioBase64) {
+  const resp = await fetch(`${WORKER_URL}/api/transcribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audioBase64,
+      provider: 'xfyun',
+      hotwords: ['会员', '办卡', '立减5元', '优惠券', '次日生效', '礼品', '花茶'],
+    }),
+  });
+  if (!resp.ok) throw new Error(`Transcribe API ${resp.status}`);
+  const data = await resp.json();
+  return (data?.text || '').trim();
+}
+
 function buildDemoScenarioInit() {
   return {
     scenario: SCENARIO,
@@ -100,7 +115,47 @@ function inferDemoEmotion(state) {
   return 'neutral';
 }
 
-function buildDemoTurn(prevState, clerkText) {
+function getLastCustomerText(history = []) {
+  const last = [...history].reverse().find((m) => m?.who === 'customer' && m?.text);
+  return last ? String(last.text).trim() : '';
+}
+
+function pickVariant(options, history = [], seed = 0) {
+  const last = getLastCustomerText(history);
+  const pool = (options || []).filter((item) => item && item !== last);
+  const target = pool.length ? pool : options;
+  if (!target || !target.length) return '你再说详细一点。';
+  return target[Math.abs(seed) % target.length];
+}
+
+function buildIntentHint(intent, keyConcern) {
+  const map = {
+    ready_join: {
+      customerMindset: '顾客已经接受，等你引导完成办理。',
+      clerkTip: '建议：直接说“我帮您扫一下码，30秒办好”。',
+    },
+    want_leave: {
+      customerMindset: '顾客赶时间，倾向尽快结束。',
+      clerkTip: '建议：先共情“您赶时间我理解”，再一句话讲本单能省多少。',
+    },
+    ask_rule: {
+      customerMindset: '顾客在确认规则是否麻烦。',
+      clerkTip: '建议：讲清“门槛+生效时间+适用范围”，越短越好。',
+    },
+    raise_objection: {
+      customerMindset: '顾客有防御心理，担心被推销。',
+      clerkTip: '建议：先安抚顾虑，再给事实，不要硬推。',
+    },
+    ask_detail: {
+      customerMindset: '顾客还在比较价值。',
+      clerkTip: '建议：继续量化优惠，把收益换算到本单。',
+    },
+  };
+  const hit = map[intent] || map.ask_detail;
+  return { ...hit, keyConcern: keyConcern || '是否真的划算' };
+}
+
+function buildDemoTurn(prevState, clerkText, history = []) {
   const state = normalizeCustomerState(prevState);
   const text = String(clerkText || '');
   const next = { ...state, turn: (state.turn || 0) + 1 };
@@ -148,24 +203,34 @@ function buildDemoTurn(prevState, clerkText) {
 
   let intent = 'ask_detail';
   let reason = '继续了解会员价值';
-  let customerReply = '还有别的优惠吗？';
+  let keyConcern = '是否真的省钱';
   if (next.stage === 'done') {
     intent = 'ready_join';
     reason = '价值和信任已达成';
-    customerReply = '行，那你帮我办吧。';
+    keyConcern = '办理流程是否麻烦';
   } else if (next.patience < 28) {
     intent = 'want_leave';
     reason = '耐心不足';
-    customerReply = '我赶时间，先不用了。';
+    keyConcern = '时间成本';
   } else if (next.objectionLevel > 62) {
     intent = 'raise_objection';
     reason = '异议较高';
-    customerReply = '办了会不会不划算？';
+    keyConcern = '办卡是否真划算';
   } else if (/立减|优惠券/.test(text) && !/次日|生效/.test(text)) {
     intent = 'ask_rule';
     reason = '优惠规则未讲清';
-    customerReply = '这券具体怎么用啊？';
+    keyConcern = '优惠券使用规则';
   }
+
+  const replyMap = {
+    ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通吧。'],
+    want_leave: ['我赶时间，先不用了。', '今天先不办，先结账吧。'],
+    ask_rule: ['这券具体怎么用啊？', '这个优惠是当天就能用吗？', '有使用门槛吗？'],
+    raise_objection: ['办了会不会不划算？', '这个卡不会有隐藏条件吧？'],
+    ask_detail: ['除了立减，还有啥权益？', '那会员平时还能省什么？', '听着可以，还有别的好处吗？'],
+  };
+  const customerReply = pickVariant(replyMap[intent], history, next.turn + history.length);
+  const coachHint = buildIntentHint(intent, keyConcern);
 
   return {
     customerReply,
@@ -174,8 +239,9 @@ function buildDemoTurn(prevState, clerkText) {
     decisionTrace: {
       intent,
       action: intent === 'ready_join' ? 'accept' : intent === 'want_leave' ? 'reject' : 'question',
-      keyConcern: '是否真的省钱',
+      keyConcern,
       reason,
+      coachHint,
       ruleNotes: notes,
       delta,
     },
@@ -185,60 +251,260 @@ function buildDemoTurn(prevState, clerkText) {
 // ──────────────────────────────────────────────
 // Web Speech API Hook
 // ──────────────────────────────────────────────
-function useSpeechRecognition({ onResult, onEnd }) {
+function mergeFloat32(chunks) {
+  const total = chunks.reduce((sum, cur) => sum + cur.length, 0);
+  const merged = new Float32Array(total);
+  let offset = 0;
+  chunks.forEach((c) => {
+    merged.set(c, offset);
+    offset += c.length;
+  });
+  return merged;
+}
+
+function downsampleFloat32(input, inputRate, outputRate = 16000) {
+  if (!input?.length) return new Float32Array(0);
+  if (!inputRate || inputRate === outputRate) return input;
+  const ratio = inputRate / outputRate;
+  const outLength = Math.max(1, Math.round(input.length / ratio));
+  const out = new Float32Array(outLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+  while (offsetResult < out.length) {
+    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+    let accum = 0;
+    let count = 0;
+    for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i += 1) {
+      accum += input[i];
+      count += 1;
+    }
+    out[offsetResult] = count ? accum / count : 0;
+    offsetResult += 1;
+    offsetBuffer = nextOffsetBuffer;
+  }
+  return out;
+}
+
+function encodeWavMono(float32Samples, sampleRate) {
+  const numSamples = float32Samples.length;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+
+  function writeString(offset, text) {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  }
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i += 1) {
+    const s = Math.max(-1, Math.min(1, float32Samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function useSpeechRecognition({ onResult, onEnd, transcribeAudio }) {
   const recRef = React.useRef(null);
+  const isRecordingRef = React.useRef(false);
+  const recorderModeRef = React.useRef('none');
+  const pcmStreamRef = React.useRef(null);
+  const audioCtxRef = React.useRef(null);
+  const processorRef = React.useRef(null);
+  const sourceRef = React.useRef(null);
+  const pcmChunksRef = React.useRef([]);
+  const pcmSampleRateRef = React.useRef(16000);
   const onResultRef = React.useRef(onResult);
   const onEndRef = React.useRef(onEnd);
+  const transcribeRef = React.useRef(transcribeAudio);
   const [supported, setSupported] = React.useState(false);
+  const [recognizing, setRecognizing] = React.useState(false);
   const [speechError, setSpeechError] = React.useState('');
 
   onResultRef.current = onResult;
   onEndRef.current = onEnd;
+  transcribeRef.current = transcribeAudio;
 
   React.useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      console.warn('浏览器不支持 Web Speech API，请使用 Chrome');
+    if (SR) {
+      recorderModeRef.current = 'sr';
+      setSupported(true);
+
+      const rec = new SR();
+      rec.lang = 'zh-CN';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      rec.onresult = (e) => {
+        const transcript = Array.from(e.results).map((r) => r[0].transcript).join('');
+        onResultRef.current(transcript, e.results[e.results.length - 1].isFinal);
+      };
+      rec.onend = () => {
+        isRecordingRef.current = false;
+        setRecognizing(false);
+        onEndRef.current();
+      };
+      rec.onerror = (e) => {
+        const msg = {
+          'not-allowed': '麦克风权限被拒，请在系统设置中允许企业微信访问麦克风',
+          'service-not-allowed': '当前环境语音服务不可用，请重试',
+          'no-speech': '未检测到声音，请靠近麦克风重试',
+          network: '网络错误，语音识别需要联网',
+          aborted: '',
+        }[e.error] || `语音错误：${e.error}`;
+        if (msg) setSpeechError(msg);
+        isRecordingRef.current = false;
+        setRecognizing(false);
+        onEndRef.current();
+      };
+      recRef.current = rec;
       return;
     }
-    setSupported(true);
 
-    const rec = new SR();
-    rec.lang = 'zh-CN';
-    rec.interimResults = true;
-    rec.continuous = false;
-
-    rec.onresult = (e) => {
-      const transcript = Array.from(e.results).map((r) => r[0].transcript).join('');
-      onResultRef.current(transcript, e.results[e.results.length - 1].isFinal);
-    };
-    rec.onend = () => onEndRef.current();
-    rec.onerror = (e) => {
-      const msg = {
-        'not-allowed': '麦克风权限被拒，请在浏览器地址栏允许麦克风',
-        'service-not-allowed': '浏览器限制，请使用 Chrome 并允许麦克风',
-        'no-speech': '未检测到声音，请靠近麦克风重试',
-        network: '网络错误，语音识别需要联网',
-        aborted: '',
-      }[e.error] || `语音错误：${e.error}`;
-      if (msg) setSpeechError(msg);
-      onEndRef.current();
-    };
-    recRef.current = rec;
+    const canRecord = !!(navigator.mediaDevices?.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+    recorderModeRef.current = canRecord ? 'pcm' : 'none';
+    setSupported(canRecord);
   }, []);
 
-  const start = () => {
+  async function startPcmRecord() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    const audioCtx = new AudioCtx();
+    await audioCtx.resume();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+    pcmChunksRef.current = [];
+    pcmSampleRateRef.current = audioCtx.sampleRate || 16000;
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      pcmChunksRef.current.push(new Float32Array(input));
+    };
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
+
+    pcmStreamRef.current = stream;
+    audioCtxRef.current = audioCtx;
+    sourceRef.current = source;
+    processorRef.current = processor;
+  }
+
+  async function stopPcmRecordAndTranscribe() {
+    try {
+      if (processorRef.current) processorRef.current.disconnect();
+      if (sourceRef.current) sourceRef.current.disconnect();
+      if (audioCtxRef.current) await audioCtxRef.current.close();
+      if (pcmStreamRef.current) pcmStreamRef.current.getTracks().forEach((t) => t.stop());
+    } catch {}
+
+    const chunks = pcmChunksRef.current || [];
+    if (!chunks.length) {
+      setRecognizing(false);
+      onEndRef.current();
+      return;
+    }
+
+    try {
+      const merged = mergeFloat32(chunks);
+      const sourceRate = pcmSampleRateRef.current || 16000;
+      const mono16k = downsampleFloat32(merged, sourceRate, 16000);
+      const wavBlob = encodeWavMono(mono16k, 16000);
+      const base64 = await blobToBase64(wavBlob);
+      const text = await transcribeRef.current(base64);
+      if (text) onResultRef.current(text, true);
+      else setSpeechError('未识别到清晰语音，请重试');
+    } catch (e) {
+      setSpeechError('语音转写失败，请检查网络后重试');
+    } finally {
+      setRecognizing(false);
+      onEndRef.current();
+      pcmChunksRef.current = [];
+      pcmStreamRef.current = null;
+      audioCtxRef.current = null;
+      sourceRef.current = null;
+      processorRef.current = null;
+    }
+  }
+
+  const start = async () => {
+    if (isRecordingRef.current) return;
     setSpeechError('');
-    try {
-      recRef.current?.start();
-    } catch {}
+    setRecognizing(true);
+    isRecordingRef.current = true;
+    if (recorderModeRef.current === 'sr') {
+      try {
+        recRef.current?.start();
+      } catch {
+        isRecordingRef.current = false;
+        setRecognizing(false);
+      }
+      return;
+    }
+    if (recorderModeRef.current === 'pcm') {
+      try {
+        await startPcmRecord();
+      } catch (e) {
+        isRecordingRef.current = false;
+        setRecognizing(false);
+        setSpeechError('麦克风授权失败，请在企业微信设置中允许麦克风权限');
+        onEndRef.current();
+      }
+      return;
+    }
+    isRecordingRef.current = false;
+    setRecognizing(false);
+    setSpeechError('当前环境不支持麦克风录音');
   };
-  const stop = () => {
-    try {
-      recRef.current?.stop();
-    } catch {}
+  const stop = async () => {
+    if (!isRecordingRef.current) return;
+    isRecordingRef.current = false;
+    if (recorderModeRef.current === 'sr') {
+      try {
+        recRef.current?.stop();
+      } catch {}
+      return;
+    }
+    if (recorderModeRef.current === 'pcm') {
+      await stopPcmRecordAndTranscribe();
+      return;
+    }
+    onEndRef.current();
   };
-  return { supported, start, stop, speechError };
+  return { supported, start, stop, speechError, recognizing };
 }
 
 // ──────────────────────────────────────────────
@@ -326,7 +592,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
     };
   }, []);
 
-  const { supported: speechSupported, start: startRec, stop: stopRec, speechError } = useSpeechRecognition({
+  const { supported: speechSupported, start: startRec, stop: stopRec, speechError, recognizing } = useSpeechRecognition({
     onResult: (transcript, isFinal) => {
       setLiveText(transcript);
       if (isFinal) {
@@ -336,6 +602,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
       }
     },
     onEnd: () => setRecording(false),
+    transcribeAudio: callTranscribe,
   });
 
   function detectPoints(clerkText) {
@@ -377,7 +644,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
         });
       } else {
         await new Promise((r) => setTimeout(r, 700));
-        turnResp = buildDemoTurn(customerStateRef.current, clerkText);
+        turnResp = buildDemoTurn(customerStateRef.current, clerkText, conversationRef.current);
       }
 
       const nextState = normalizeCustomerState(turnResp.customerState);
@@ -390,7 +657,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
 
       setMessages((m) => [...m, { who: 'customer', text: customerReply, emotion }]);
     } catch (e) {
-      const fallback = buildDemoTurn(customerStateRef.current, clerkText);
+      const fallback = buildDemoTurn(customerStateRef.current, clerkText, conversationRef.current);
       const nextState = normalizeCustomerState(fallback.customerState);
       setDemoMode(true);
       setCustomerState(nextState);
@@ -462,7 +729,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
           customerName={customerMeta.customerName || '王阿姨'}
           stage={customerState.stage}
         />
-        <CustomerStatePanel customerState={customerState} decisionTrace={decisionTrace} />
+        <CustomerIntentPanel customerState={customerState} decisionTrace={decisionTrace} />
       </div>
       <KeyPointChecklist points={KEY_POINTS} covered={coveredPoints} />
 
@@ -501,6 +768,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
         recording={recording}
         speechSupported={speechSupported}
         speechError={speechError}
+        recognizing={recognizing}
         aiTyping={aiTyping}
         onMicDown={() => {
           if (scenarioLoading) return;
@@ -508,7 +776,10 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
           setLiveText('');
           startRec();
         }}
-        onMicUp={() => stopRec()}
+        onMicUp={() => {
+          setRecording(false);
+          stopRec();
+        }}
         onSend={() => {
           if (text.trim()) sendClerk(text.trim());
         }}
@@ -610,48 +881,42 @@ function DigitalCustomerAvatar({ emotion = 'neutral', avatarStyle, customerName 
   );
 }
 
-// 新组件：顾客状态面板
-function CustomerStatePanel({ customerState, decisionTrace }) {
+function buildReadableHint(decisionTrace) {
+  const intent = decisionTrace?.intent || 'ask_detail';
+  const defaultHint = buildIntentHint(intent, decisionTrace?.keyConcern);
+  const coachHint = decisionTrace?.coachHint || defaultHint;
+  return {
+    customerMindset: coachHint.customerMindset || defaultHint.customerMindset,
+    clerkTip: coachHint.clerkTip || defaultHint.clerkTip,
+    keyConcern: decisionTrace?.keyConcern || coachHint.keyConcern || '是否划算',
+  };
+}
+
+// 新组件：顾客意图提醒（大白话，不展示数值）
+function CustomerIntentPanel({ customerState, decisionTrace }) {
   const state = normalizeCustomerState(customerState);
-  const bars = [
-    { key: 'trust', label: '信任', value: state.trust, color: '#14B87A' },
-    { key: 'patience', label: '耐心', value: state.patience, color: '#4E7BFF' },
-    { key: 'interest', label: '兴趣', value: state.interest, color: '#FF9E44' },
-    { key: 'objectionLevel', label: '异议', value: state.objectionLevel, color: '#FF6A5F', reverse: true },
-  ];
+  const hint = buildReadableHint(decisionTrace);
 
   return (
     <div style={{ background: '#fff', borderRadius: 14, padding: '10px 12px', boxShadow: 'var(--shadow-card)' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink-2)' }}>🧠 顾客状态</div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink-2)' }}>💡 顾客意图提醒</div>
         <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-3)', fontWeight: 700 }}>
           第 {state.turn || 0} 轮 · {STAGE_LABEL[state.stage] || '开场'}
         </div>
       </div>
 
       <div style={{ display: 'grid', gap: 6 }}>
-        {bars.map((b) => {
-          const showValue = b.reverse ? 100 - b.value : b.value;
-          return (
-            <div key={b.key} style={{ display: 'grid', gridTemplateColumns: '44px 1fr 34px', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700 }}>{b.label}</span>
-              <div style={{ height: 7, borderRadius: 999, background: '#EEF1F6', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, showValue))}%`, background: b.color, borderRadius: 999, transition: 'width 0.35s var(--ease-out)' }} />
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--ink-2)', fontWeight: 800, textAlign: 'right' }}>{Math.round(showValue)}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {decisionTrace && (
-        <div style={{ marginTop: 8, padding: '7px 9px', borderRadius: 9, background: 'var(--bg-3)', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-2)', fontWeight: 700 }}>意图：{decisionTrace.intent || 'ask_detail'}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.35 }}>
-            {decisionTrace.reason || '顾客在持续评估会员价值。'}
-          </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>
+          顾客此刻在想：<span style={{ fontWeight: 700 }}>{hint.customerMindset}</span>
         </div>
-      )}
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+          当前疑虑：{hint.keyConcern}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--brand-ink)', lineHeight: 1.5, background: 'var(--brand-soft)', borderRadius: 10, padding: '7px 9px', border: '1px solid #BEEFD8' }}>
+          {hint.clerkTip}
+        </div>
+      </div>
     </div>
   );
 }
@@ -731,6 +996,7 @@ function AIInputBar({
   recording,
   speechSupported,
   speechError,
+  recognizing,
   aiTyping,
   onMicDown,
   onMicUp,
@@ -825,7 +1091,7 @@ function AIInputBar({
           }}
         >
           {Icon.mic(22)}
-          {recording ? '松开发送…' : aiTyping ? '顾客回复中…' : disabled ? '场景初始化中…' : speechSupported ? '按住说话' : '请切换文字模式'}
+          {recording ? '松开结束录音…' : recognizing ? '语音识别中…' : aiTyping ? '顾客回复中…' : disabled ? '场景初始化中…' : speechSupported ? '按住说话' : '当前环境不支持语音'}
         </button>
       ) : (
         <div style={{ display: 'flex', gap: 8 }}>
@@ -850,4 +1116,4 @@ function AIInputBar({
   );
 }
 
-Object.assign(window, { AIPracticeScreen, CustomerStatePanel, DigitalCustomerAvatar });
+Object.assign(window, { AIPracticeScreen, CustomerIntentPanel, DigitalCustomerAvatar });
