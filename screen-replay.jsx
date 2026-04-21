@@ -11,6 +11,8 @@ function ReplayScreen({ onComplete, onBack, onPracticeAgain, scoreData }) {
   const missed   = scoreData?.missed   ?? ['免费礼品'];
   const goodTip  = scoreData?.feedback_good    ?? '话术覆盖清晰，顾客成功办卡。量化到本单效果好';
   const improveTip = scoreData?.feedback_improve ?? '下次记得补充「次日生效」这一关键信息点';
+  const behaviorScores = scoreData?.behavior_scores ?? [];
+  const behaviorSummary = scoreData?.behavior_summary ?? null;
 
   // 真实对话 + 逐句点评（API 返回的 per_message 用于标注）
   const conversation = scoreData?.conversation ?? [];
@@ -116,6 +118,29 @@ function ReplayScreen({ onComplete, onBack, onPracticeAgain, scoreData }) {
                 <span key={i} style={{ background: '#FFD0A055', borderRadius: 5, padding: '1px 6px', marginLeft: 4 }}>{m}</span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ── 行为评估（结构化） ── */}
+        {behaviorScores.length > 0 && (
+          <div style={{ marginTop: 12, background: '#fff', borderRadius: 14, padding: '12px 12px 10px', boxShadow: 'var(--shadow-card)' }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink-2)', marginBottom: 8 }}>🧭 行为评估</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {behaviorScores.map((item, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '70px 1fr 32px', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700 }}>{item.dimension || `维度${i + 1}`}</span>
+                  <div style={{ height: 7, borderRadius: 999, background: '#EEF1F6', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, item.score || 0))}%`, borderRadius: 999, background: '#4E7BFF' }} />
+                  </div>
+                  <span style={{ fontSize: 11, textAlign: 'right', fontWeight: 800, color: '#2D4FD3' }}>{item.score || 0}</span>
+                </div>
+              ))}
+            </div>
+            {behaviorSummary?.next_actions?.length > 0 && (
+              <div style={{ marginTop: 9, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                下一步：{behaviorSummary.next_actions.slice(0, 2).join('；')}
+              </div>
+            )}
           </div>
         )}
 
