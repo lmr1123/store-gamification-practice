@@ -508,26 +508,76 @@ function buildDecision(ruleId, intent, action, keyConcern, reason, emotion) {
   return { ruleId, intent, action, keyConcern, reason, emotion };
 }
 
-function avoidRepeatIntent(decision, state, slots) {
-  const lastIntent = (state.intentHistory || []).slice(-1)[0] || slots.lastCustomerIntent;
-  if (!lastIntent || lastIntent !== decision.intent) return decision;
+function buildDecisionMetaByIntent(intent, prev = {}) {
+  const map = {
+    answer_member_status_no_card: { action: 'continue_talk', keyConcern: '先确认会员身份', emotion: 'neutral' },
+    answer_member_status_has_card: { action: 'continue_talk', keyConcern: '先确认会员身份', emotion: 'neutral' },
+    ask_join_benefit: { action: 'question', keyConcern: CONCERN_LABEL.benefit, emotion: 'curious' },
+    ask_benefit_amount: { action: 'question', keyConcern: CONCERN_LABEL.benefit, emotion: 'neutral' },
+    ask_coupon_rule: { action: 'question', keyConcern: '优惠规则细节', emotion: 'curious' },
+    ask_effective_time: { action: 'question', keyConcern: '优惠规则细节', emotion: 'curious' },
+    ask_scope: { action: 'question', keyConcern: '优惠规则细节', emotion: 'curious' },
+    ask_expiry: { action: 'question', keyConcern: '优惠规则细节', emotion: 'curious' },
+    ask_process: { action: 'question', keyConcern: CONCERN_LABEL.convenience, emotion: 'interested' },
+    raise_objection: { action: 'question', keyConcern: CONCERN_LABEL.risk, emotion: 'annoyed' },
+    delay_decision: { action: 'hesitate', keyConcern: CONCERN_LABEL.risk, emotion: 'neutral' },
+    ready_join: { action: 'accept', keyConcern: '办理效率', emotion: 'happy' },
+    want_leave: { action: 'reject', keyConcern: '时间成本', emotion: 'annoyed' },
+    share_needs: { action: 'continue_talk', keyConcern: '结合自身购药习惯', emotion: 'interested' },
+  };
+  return {
+    action: prev.action || map[intent]?.action || 'question',
+    keyConcern: prev.keyConcern || map[intent]?.keyConcern || CONCERN_LABEL.benefit,
+    emotion: prev.emotion || map[intent]?.emotion || 'neutral',
+  };
+}
 
-  const replacement = {
-    ask_benefit_amount: slots.missingRuleFacts.length ? mapMissingFactToIntent(slots.missingRuleFacts) : 'share_needs',
-    ask_coupon_rule: slots.missingRuleFacts.includes('effectiveTime') ? 'ask_effective_time' : 'ask_scope',
-    ask_effective_time: slots.missingRuleFacts.includes('scope') ? 'ask_scope' : 'ask_process',
-    ask_scope: 'ask_process',
-    ask_process: 'delay_decision',
-    ask_join_benefit: 'ask_benefit_amount',
-    raise_objection: 'delay_decision',
-  }[decision.intent];
-
-  if (!replacement) return decision;
+function switchDecisionIntent(decision, nextIntent, reasonSuffix) {
+  const meta = buildDecisionMetaByIntent(nextIntent, {});
   return {
     ...decision,
-    intent: replacement,
-    reason: `${decision.reason}（避免重复追问）`,
+    intent: nextIntent,
+    action: meta.action,
+    keyConcern: meta.keyConcern,
+    emotion: meta.emotion,
+    reason: `${decision.reason}${reasonSuffix || ''}`,
   };
+}
+
+function avoidRepeatIntent(decision, state, slots) {
+  const history = (state.intentHistory || []).filter(Boolean);
+  const recent = history.slice(-4);
+  const lastIntent = recent[recent.length - 1] || slots.lastCustomerIntent;
+  const loopSensitiveIntents = [
+    'ask_join_benefit',
+    'ask_benefit_amount',
+    'ask_coupon_rule',
+    'ask_effective_time',
+    'ask_scope',
+    'ask_expiry',
+    'ask_process',
+    'raise_objection',
+  ];
+  const shouldAvoid = loopSensitiveIntents.includes(decision.intent) && recent.includes(decision.intent);
+  if (!lastIntent || (!shouldAvoid && lastIntent !== decision.intent)) return decision;
+
+  const replacementChain = {
+    ask_join_benefit: ['ask_benefit_amount', 'ask_coupon_rule', 'ask_process', 'delay_decision'],
+    ask_benefit_amount: [mapMissingFactToIntent(slots.missingRuleFacts), 'ask_coupon_rule', 'ask_effective_time', 'ask_scope', 'share_needs', 'delay_decision'],
+    ask_coupon_rule: ['ask_effective_time', 'ask_scope', 'ask_expiry', 'ask_process', 'delay_decision'],
+    ask_effective_time: ['ask_scope', 'ask_process', 'raise_objection', 'delay_decision'],
+    ask_scope: ['ask_process', 'raise_objection', 'delay_decision'],
+    ask_expiry: ['ask_scope', 'ask_process', 'delay_decision'],
+    ask_process: ['ready_join', 'delay_decision', 'want_leave'],
+    raise_objection: ['delay_decision', 'ask_process', 'want_leave'],
+  }[decision.intent] || [];
+
+  const fallback = ['delay_decision', 'share_needs', 'want_leave'];
+  const candidatePool = [...replacementChain, ...fallback].filter(Boolean);
+  const replacement = candidatePool.find((intent) => !recent.includes(intent)) || candidatePool[0];
+
+  if (!replacement || replacement === decision.intent) return decision;
+  return switchDecisionIntent(decision, replacement, '（避免重复追问）');
 }
 
 function decideCustomerAction({ state, signal, slots, personaInput = {} }) {

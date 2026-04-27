@@ -358,17 +358,34 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     keyConcern = '办理效率';
   }
 
-  const lastIntent = Array.isArray(state.intentHistory) ? state.intentHistory[state.intentHistory.length - 1] : '';
-  if (lastIntent && lastIntent === intent) {
-    const switchIntent = {
-      ask_benefit_amount: 'ask_effective_time',
-      ask_effective_time: 'ask_scope',
-      ask_scope: 'ask_process',
-      ask_process: 'ready_join',
-      raise_objection: 'delay_decision',
+  const recentIntents = Array.isArray(state.intentHistory) ? state.intentHistory.slice(-4) : [];
+  const loopSensitiveIntents = [
+    'ask_join_benefit',
+    'ask_benefit_amount',
+    'ask_effective_time',
+    'ask_scope',
+    'ask_process',
+    'raise_objection',
+  ];
+  const needAvoidRepeat = loopSensitiveIntents.includes(intent) && recentIntents.includes(intent);
+  if (needAvoidRepeat) {
+    const missingFactIntents = [];
+    if (!ruleCoverage.threshold) missingFactIntents.push('ask_rule');
+    if (!ruleCoverage.effective) missingFactIntents.push('ask_effective_time');
+    if (!ruleCoverage.scope) missingFactIntents.push('ask_scope');
+    if (!anyProcessIntro) missingFactIntents.push('ask_process');
+    const replacementChain = {
+      ask_join_benefit: ['ask_benefit_amount', ...missingFactIntents, 'delay_decision'],
+      ask_benefit_amount: [...missingFactIntents, 'raise_objection', 'delay_decision'],
+      ask_effective_time: ['ask_scope', 'ask_process', 'raise_objection', 'delay_decision'],
+      ask_scope: ['ask_process', 'raise_objection', 'delay_decision'],
+      ask_process: ['ready_join', 'delay_decision', 'want_leave'],
+      raise_objection: ['delay_decision', 'ask_process', 'want_leave'],
     };
-    if (switchIntent[intent]) {
-      intent = switchIntent[intent];
+    const candidates = [...(replacementChain[intent] || []), 'delay_decision', 'want_leave'].filter(Boolean);
+    const replacement = candidates.find((x) => !recentIntents.includes(x)) || candidates[0];
+    if (replacement && replacement !== intent) {
+      intent = replacement;
       reason += '（避免重复追问）';
     }
   }
