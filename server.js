@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const agentEngine = require('./customer-agent-engine');
 
 // ── 配置 ──────────────────────────────────────
 const PORT = 8899;
@@ -28,10 +29,59 @@ const XFYUN_WS_PATH = '/v2/iat';
 
 const DEFAULT_SCENARIO = {
   name: '收银场景·会员引导',
-  intro: '王阿姨把68元商品放在收银台，准备结账。',
-  customerName: '王阿姨',
-  customerProfile: '50岁左右，价格敏感，愿意听实在好处，不喜欢被强推。',
+  intro: '顾客把商品放在收银台，准备结账。',
 };
+
+const CUSTOMER_PERSONAS = {
+  price_sensitive: {
+    id: 'price_sensitive',
+    label: '价格敏感型',
+    customerName: '王阿姨',
+    customerProfile: '50岁左右，强价格敏感。只对能立刻省钱的权益感兴趣，不喜欢空泛推荐。',
+    openingLine: '先帮我结账，今天有没有实在优惠？',
+    visual: { skin: '#F6C8A5', hair: '#3E2F2B', outfit: '#8EA0B6', accent: '#FF9E44' },
+  },
+  chronic_repurchase: {
+    id: 'chronic_repurchase',
+    label: '慢病复购型',
+    customerName: '陈叔',
+    customerProfile: '55岁左右，长期慢病复购。关注长期省钱、稳定供药、会员复购权益。',
+    openingLine: '我这药每月都买，会员长期能省多少？',
+    visual: { skin: '#E8B88E', hair: '#4B4B4B', outfit: '#7D98A6', accent: '#4E7BFF' },
+  },
+  young_white_collar: {
+    id: 'young_white_collar',
+    label: '年轻白领型',
+    customerName: '小林',
+    customerProfile: '28岁白领，节奏快，关注效率。反感冗长介绍，愿意听清晰结论。',
+    openingLine: '我赶时间，你一句话说重点吧。',
+    visual: { skin: '#F2C7A8', hair: '#2E2A2A', outfit: '#5E7B93', accent: '#7B61FF' },
+  },
+  mom_with_kid: {
+    id: 'mom_with_kid',
+    label: '带娃妈妈型',
+    customerName: '李妈妈',
+    customerProfile: '32岁宝妈，购买频次高。关注儿童用品实用性、活动门槛和使用便利。',
+    openingLine: '我还要接孩子，能快点说清楚吗？',
+    visual: { skin: '#F5C5AA', hair: '#5A3A31', outfit: '#C18A75', accent: '#14B87A' },
+  },
+  hurry_checkout: {
+    id: 'hurry_checkout',
+    label: '着急结账型',
+    customerName: '赵先生',
+    customerProfile: '35岁，时间紧迫。对冗长沟通耐受低，只接受简洁且立即可执行的信息。',
+    openingLine: '我赶时间，能不能快点结完？',
+    visual: { skin: '#E2B38C', hair: '#2C2C2C', outfit: '#6A748C', accent: '#FF6A5F' },
+  },
+};
+
+const PERSONA_IDS = Object.keys(CUSTOMER_PERSONAS);
+
+function resolvePersona(personaId) {
+  if (personaId && CUSTOMER_PERSONAS[personaId]) return CUSTOMER_PERSONAS[personaId];
+  const idx = Math.floor(Math.random() * PERSONA_IDS.length);
+  return CUSTOMER_PERSONAS[PERSONA_IDS[idx]];
+}
 
 // ── MIME 类型 ──────────────────────────────────
 const MIME = {
@@ -599,20 +649,23 @@ function glmSync(messages, callback, opts = {}) {
 }
 
 function generateCustomerExpression(input, callback) {
-  const fallback = buildTemplateCustomerReply(input.decision, input);
+  const fallback = agentEngine.buildTemplateCustomerReply(input.decision, input);
   if (!GLM_KEY) return callback(null, fallback);
 
-  const prompt = buildCustomerExpressionPrompt(input);
+  const prompt = agentEngine.buildCustomerExpressionPrompt(input);
   glmSync([{ role: 'user', content: prompt }], (err, content) => {
     if (err) return callback(null, fallback);
     const parsed = extractJSONObject(content);
     if (!parsed || !parsed.reply) return callback(null, fallback);
-    const lastCustomer = getLastCustomerUtterance(input.history || []);
+    const lastCustomer = [...(input.history || [])].reverse().find((m) => m?.who === 'customer' && m?.text)?.text || '';
     let reply = String(parsed.reply).replace(/\s+/g, ' ').trim();
     if (!reply || reply === lastCustomer) {
       reply = fallback.reply;
     }
-    if (/还有.*优惠/.test(reply) && /还有.*优惠/.test(lastCustomer)) {
+    if (/还有.*优惠/.test(reply) && /还有.*优惠/.test(String(lastCustomer))) {
+      reply = fallback.reply;
+    }
+    if (!agentEngine.isReplyAlignedWithIntent(reply, input.decision.intent)) {
       reply = fallback.reply;
     }
     const emotion = ['neutral', 'curious', 'interested', 'happy', 'annoyed'].includes(parsed.emotion)
@@ -985,19 +1038,43 @@ const server = http.createServer((req, res) => {
       if (err) return writeJSON(res, 400, { error: err.message });
 
       const scenario = String(body.scenario || DEFAULT_SCENARIO.name);
-      const customerName = String(body.customerName || DEFAULT_SCENARIO.customerName);
-      const customerState = buildInitialCustomerState();
-      const openingLine = '帮我结一下账，顺便快一点哈。';
+      const persona = agentEngine.resolvePersona({
+        personaId: String(body.personaId || ''),
+        customerName: String(body.customerName || ''),
+      });
+      const customerName = String(body.customerName || persona.customerName);
+      const customerState = agentEngine.buildInitialCustomerState(persona);
+      const openingLine = String(body.openingLine || persona.openingLine);
+      const playbook = agentEngine.buildPlaybook();
 
       return writeJSON(res, 200, {
         scenario,
         sceneIntro: DEFAULT_SCENARIO.intro,
         customerName,
-        customerProfile: DEFAULT_SCENARIO.customerProfile,
+        customerProfile: persona.customerProfile,
+        persona: {
+          id: persona.id,
+          label: persona.label,
+          customerName,
+          visual: persona.visual,
+          concernPriority: persona.concernPriority,
+          typicalObjections: persona.typicalObjections || [],
+        },
         openingLine,
         customerState,
+        playbook: {
+          membershipFacts: playbook.membershipFacts,
+          slotTable: playbook.slotTable,
+          decisionRules: playbook.decisionRules,
+          annoyanceTriggers: playbook.annoyanceTriggers,
+        },
       });
     });
+  }
+
+  // ── API: 顾客Agent运营配置（槽位表/规则表/画像库）──
+  if (req.method === 'GET' && pathname === '/api/customer-agent-playbook') {
+    return writeJSON(res, 200, agentEngine.buildPlaybook());
   }
 
   // ── API: 顾客回合（规则决策 + LLM表达）──────────
@@ -1006,37 +1083,60 @@ const server = http.createServer((req, res) => {
       if (err) return writeJSON(res, 400, { error: err.message });
 
       const scenario = String(body.scenario || DEFAULT_SCENARIO.name);
-      const customerName = String(body.customerName || DEFAULT_SCENARIO.customerName);
+      const persona = agentEngine.resolvePersona({
+        personaId: String(body.personaId || ''),
+        customerName: String(body.customerName || ''),
+      });
+      const customerName = String(body.customerName || persona.customerName);
       const clerkText = String(body.clerkText || '').trim();
       const history = Array.isArray(body.history) ? body.history : [];
 
       if (!clerkText) return writeJSON(res, 400, { error: 'clerkText required' });
 
-      const prevState = normalizeCustomerState(body.customerState || {});
-      const signal = analyzeClerkBehavior(clerkText);
-      const stateOutcome = applyStateRules(prevState, signal);
-      const decision = decideCustomerAction(stateOutcome.nextState, signal);
-      const coachHint = buildCoachHint(decision, stateOutcome.nextState, signal);
+      const prevState = agentEngine.normalizeCustomerState(body.customerState || {}, persona);
+      const signal = agentEngine.analyzeClerkBehavior(clerkText);
+      const slots = agentEngine.deriveScenarioSlots(history, clerkText, signal, prevState, persona);
+      const stateOutcome = agentEngine.applyStateRules(prevState, signal, slots, persona);
+      const decision = agentEngine.decideCustomerAction({
+        state: stateOutcome.nextState,
+        signal,
+        slots,
+        history,
+        personaInput: persona,
+      });
+      const coachHint = agentEngine.buildCoachHint(decision, stateOutcome.nextState, slots);
 
       return generateCustomerExpression({
         scenario,
         customerName,
-        customerProfile: DEFAULT_SCENARIO.customerProfile,
+        customerProfile: persona.customerProfile,
         clerkText,
         state: stateOutcome.nextState,
         decision,
+        persona,
+        slots,
         history,
       }, (_genErr, expr) => {
-        const nextState = {
+        const enrichedState = {
           ...stateOutcome.nextState,
           emotion: expr?.emotion || stateOutcome.nextState.emotion,
         };
+        const nextState = agentEngine.pushIntentHistory(enrichedState, decision.intent);
         writeJSON(res, 200, {
           customerReply: expr?.reply || '你再说详细一点。',
           emotion: nextState.emotion,
           customerState: nextState,
+          persona: {
+            id: persona.id,
+            label: persona.label,
+            customerName,
+            visual: persona.visual,
+            concernPriority: persona.concernPriority,
+            typicalObjections: persona.typicalObjections || [],
+          },
           coachHint,
           decisionTrace: {
+            ruleId: decision.ruleId,
             intent: decision.intent,
             action: expr?.action || decision.action,
             keyConcern: decision.keyConcern,
@@ -1044,6 +1144,7 @@ const server = http.createServer((req, res) => {
             coachHint,
             ruleNotes: stateOutcome.reasons.slice(0, 4),
             behaviorSignals: signal,
+            slots,
             delta: stateOutcome.delta,
           },
         });
@@ -1090,7 +1191,7 @@ const server = http.createServer((req, res) => {
       if (err) return writeJSON(res, 400, { error: err.message });
       if (!GLM_KEY) return writeJSON(res, 500, { error: 'GLM_API_KEY not set' });
 
-      const { messages = [], scenario = DEFAULT_SCENARIO.name, customerName = DEFAULT_SCENARIO.customerName } = body;
+      const { messages = [], scenario = DEFAULT_SCENARIO.name, customerName = '王阿姨' } = body;
       const systemMsg = { role: 'system', content: buildLegacySystemPrompt(scenario, customerName) };
       return glmStream([systemMsg, ...(Array.isArray(messages) ? messages : [])], res);
     });

@@ -19,6 +19,12 @@ const DEFAULT_CUSTOMER_STATE = {
   interest: 38,
   budgetSensitivity: 76,
   objectionLevel: 58,
+  memberStatus: 'unknown',
+  ruleAwareness: 20,
+  annoyance: 22,
+  currentConcern: 'benefit',
+  intentHistory: [],
+  slotProgress: {},
   emotion: 'neutral',
   stage: 'opening',
   turn: 0,
@@ -49,19 +55,20 @@ async function callScenarioInit() {
   const resp = await fetch(`${WORKER_URL}/api/scenario-init`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scenario: SCENARIO, customerName: '王阿姨' }),
+    body: JSON.stringify({ scenario: SCENARIO }),
   });
   if (!resp.ok) throw new Error(`Init API ${resp.status}`);
   return resp.json();
 }
 
-async function callCustomerTurn({ clerkText, customerState, history, customerName = '王阿姨' }) {
+async function callCustomerTurn({ clerkText, customerState, history, customerName = '王阿姨', personaId = '' }) {
   const resp = await fetch(`${WORKER_URL}/api/customer-turn`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       scenario: SCENARIO,
       customerName,
+      personaId,
       clerkText,
       customerState,
       history,
@@ -103,6 +110,12 @@ function buildDemoScenarioInit() {
     customerName: '王阿姨',
     customerProfile: '50岁左右，价格敏感，不喜欢被强推。',
     openingLine: '帮我结一下账，快一点哈。',
+    persona: {
+      id: 'price_sensitive',
+      label: '价格敏感型',
+      concernPriority: ['benefit', 'time', 'risk', 'convenience'],
+      typicalObjections: ['办会员到底能省多少', '优惠券是不是当天不能用', '会不会有使用门槛'],
+    },
     customerState: { ...DEFAULT_CUSTOMER_STATE },
   };
 }
@@ -130,6 +143,34 @@ function pickVariant(options, history = [], seed = 0) {
 
 function buildIntentHint(intent, keyConcern) {
   const map = {
+    answer_member_status_no_card: {
+      customerMindset: '顾客先在确认自己还没办会员。',
+      clerkTip: '建议：先肯定，再讲本单可省金额。',
+    },
+    answer_member_status_has_card: {
+      customerMindset: '顾客已有会员，期待你查券。',
+      clerkTip: '建议：直接查券并报本单可省。',
+    },
+    ask_join_benefit: {
+      customerMindset: '顾客在问“办卡到底值不值”。',
+      clerkTip: '建议：一句话量化“本单省多少+后续券价值”。',
+    },
+    ask_benefit_amount: {
+      customerMindset: '顾客还没感知到明确收益。',
+      clerkTip: '建议：直接算本单省多少钱。',
+    },
+    ask_effective_time: {
+      customerMindset: '顾客担心今天办卡不能马上用。',
+      clerkTip: '建议：讲清“领取后次日生效”。',
+    },
+    ask_scope: {
+      customerMindset: '顾客在确认能否全场使用。',
+      clerkTip: '建议：明确“全场通用”，并举一个例子。',
+    },
+    ask_process: {
+      customerMindset: '顾客在确认办理是否麻烦。',
+      clerkTip: '建议：按“扫码-加企微-授权办卡”三步说明。',
+    },
     ready_join: {
       customerMindset: '顾客已经接受，等你引导完成办理。',
       clerkTip: '建议：直接说“我帮您扫一下码，30秒办好”。',
@@ -522,7 +563,14 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
   const [scoring, setScoring] = React.useState(false);
   const [scenarioLoading, setScenarioLoading] = React.useState(true);
   const [customerState, setCustomerState] = React.useState({ ...DEFAULT_CUSTOMER_STATE });
-  const [customerMeta, setCustomerMeta] = React.useState({ customerName: '王阿姨', customerProfile: '' });
+  const [customerMeta, setCustomerMeta] = React.useState({
+    customerName: '王阿姨',
+    customerProfile: '',
+    personaId: '',
+    personaLabel: '',
+    concernPriority: [],
+    typicalObjections: [],
+  });
   const [decisionTrace, setDecisionTrace] = React.useState(null);
   const [demoMode, setDemoMode] = React.useState(false);
   const scrollRef = React.useRef(null);
@@ -558,6 +606,10 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
         setCustomerMeta({
           customerName: initData.customerName || '王阿姨',
           customerProfile: initData.customerProfile || '',
+          personaId: initData?.persona?.id || '',
+          personaLabel: initData?.persona?.label || '',
+          concernPriority: initData?.persona?.concernPriority || [],
+          typicalObjections: initData?.persona?.typicalObjections || [],
         });
         setMessages([
           { who: 'sys', text: `🎬 场景：${sceneIntro}` },
@@ -577,7 +629,14 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
         const initState = normalizeCustomerState(initData.customerState);
         setDemoMode(true);
         setCustomerState(initState);
-        setCustomerMeta({ customerName: initData.customerName, customerProfile: initData.customerProfile });
+        setCustomerMeta({
+          customerName: initData.customerName,
+          customerProfile: initData.customerProfile,
+          personaId: initData?.persona?.id || 'price_sensitive',
+          personaLabel: initData?.persona?.label || '价格敏感型',
+          concernPriority: initData?.persona?.concernPriority || ['benefit', 'time', 'risk', 'convenience'],
+          typicalObjections: initData?.persona?.typicalObjections || [],
+        });
         setMessages([
           { who: 'sys', text: '🎬 场景：王阿姨把68元商品放在收银台，准备结账。' },
           { who: 'customer', text: initData.openingLine, emotion: initState.emotion },
@@ -641,6 +700,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
           customerState: customerStateRef.current,
           history: conversationRef.current.slice(-8),
           customerName: customerMeta.customerName || '王阿姨',
+          personaId: customerMeta.personaId || '',
         });
       } else {
         await new Promise((r) => setTimeout(r, 700));
@@ -727,6 +787,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
           emotion={currentEmotion}
           avatarStyle={avatarStyle}
           customerName={customerMeta.customerName || '王阿姨'}
+          personaLabel={customerMeta.personaLabel || ''}
           stage={customerState.stage}
         />
         <CustomerIntentPanel customerState={customerState} decisionTrace={decisionTrace} />
@@ -833,7 +894,7 @@ function AIPracticeHeader({ elapsed, onClose }) {
 }
 
 // 新组件：数字顾客头像（情绪切换）
-function DigitalCustomerAvatar({ emotion = 'neutral', avatarStyle, customerName = '王阿姨', stage, compact = false }) {
+function DigitalCustomerAvatar({ emotion = 'neutral', avatarStyle, customerName = '王阿姨', personaLabel = '', stage, compact = false }) {
   const emoConfig = {
     neutral: { emoji: '😐', color: '#7D8597', bg: 'linear-gradient(135deg,#EEF1F6 0%,#E2E7EE 100%)', glow: 'rgba(125,133,151,0.2)' },
     curious: { emoji: '🤔', color: '#4E7BFF', bg: 'linear-gradient(135deg,#EAF0FF 0%,#DCE7FF 100%)', glow: 'rgba(78,123,255,0.25)' },
@@ -871,7 +932,9 @@ function DigitalCustomerAvatar({ emotion = 'neutral', avatarStyle, customerName 
       </div>
       {!compact && (
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>{customerName}（顾客Agent）</div>
+          <div style={{ fontSize: 14, fontWeight: 800 }}>
+            {customerName}（{personaLabel || '顾客Agent'}）
+          </div>
           <div style={{ fontSize: 12, color: e.color, fontWeight: 700 }}>
             情绪：{emotion} · 阶段：{STAGE_LABEL[stage] || '开场'}
           </div>
