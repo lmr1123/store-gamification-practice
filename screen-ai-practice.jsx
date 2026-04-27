@@ -1,7 +1,15 @@
 // 屏幕4：AI 数字人实时对练
 // 新流程：scenario-init + customer-turn（顾客Agent状态驱动）+ 结构化行为评分
 
-const WORKER_URL = 'http://localhost:8899';
+const API_BASE_FROM_QUERY = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('api') || '';
+  } catch {
+    return '';
+  }
+})();
+const IS_LOCAL_HOST = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+const WORKER_URL = API_BASE_FROM_QUERY || (IS_LOCAL_HOST ? 'http://localhost:8899' : '');
 const SCENARIO = '收银场景·会员引导';
 
 const KEY_POINTS = [
@@ -198,79 +206,200 @@ function buildIntentHint(intent, keyConcern) {
 
 function buildDemoTurn(prevState, clerkText, history = []) {
   const state = normalizeCustomerState(prevState);
-  const text = String(clerkText || '');
+  const text = String(clerkText || '').trim();
   const next = { ...state, turn: (state.turn || 0) + 1 };
   const delta = { trust: 0, patience: 0, interest: 0, objectionLevel: 0 };
   const notes = [];
+  const clerkHistory = history.filter((m) => m?.who === 'clerk').map((m) => String(m.text || '').trim());
+  const customerHistory = history.filter((m) => m?.who === 'customer').map((m) => String(m.text || '').trim());
+  const lastCustomerLine = customerHistory[customerHistory.length - 1] || '';
+  const memberAskRegex = /会员|会员卡|积分|办卡/;
+  const benefitRegex = /(立减|减)\s*5|省\s*5|5\s*元|优惠券|3\s*张|15元/;
+  const processRegex = /扫码|企业微信|加好友|小程序|授权|手机号|二维码/;
+  const asksMember = memberAskRegex.test(text);
+  const mentionsBenefit = benefitRegex.test(text);
+  const mentionsThreshold = /满\s*9\.?9|9\.?9|减\s*5|5\s*元|门槛/.test(text);
+  const mentionsEffective = /次日|明天.*生效|第二天/.test(text);
+  const mentionsExpiry = /一个月|30天|有效期/.test(text);
+  const mentionsScope = /全场|通用|都能用|范围/.test(text);
+  const mentionsProcess = processRegex.test(text);
+  const hardSell = /必须|赶紧|一定要|立刻|不办就亏|你就办/.test(text);
+  const hasEmpathy = /理解|明白|别着急|我帮您|放心/.test(text);
+  const longWinded = text.length > 58;
+  const timePressure = /赶时间|快点|先结账|着急/.test(lastCustomerLine);
+  const memberAskCount = clerkHistory.filter((line) => memberAskRegex.test(line)).length + (asksMember ? 1 : 0);
+  const hasBenefitInHistory = clerkHistory.some((line) => benefitRegex.test(line));
+  const anyBenefitIntro = hasBenefitInHistory || mentionsBenefit;
+  const anyProcessIntro = clerkHistory.some((line) => processRegex.test(line)) || mentionsProcess;
+  const ruleCoverage = {
+    threshold: mentionsThreshold || clerkHistory.some((line) => /满\s*9\.?9|9\.?9|减\s*5|5\s*元|门槛/.test(line)),
+    effective: mentionsEffective || clerkHistory.some((line) => /次日|明天.*生效|第二天/.test(line)),
+    expiry: mentionsExpiry || clerkHistory.some((line) => /一个月|30天|有效期/.test(line)),
+    scope: mentionsScope || clerkHistory.some((line) => /全场|通用|都能用|范围/.test(line)),
+  };
+  const ruleCoverageCount = Object.values(ruleCoverage).filter(Boolean).length;
 
+  if (asksMember && next.memberStatus === 'unknown') {
+    next.memberStatus = 'no_card';
+    notes.push('顾客先回应会员状态');
+  }
   if (/你好|您好|欢迎|光临/.test(text)) {
     delta.trust += 5;
     delta.patience += 4;
     notes.push('开场礼貌');
   }
-  if (/会员|积分|办卡/.test(text)) {
-    delta.interest += 6;
+  if (asksMember && !anyBenefitIntro) {
+    delta.interest += 4;
     notes.push('进入会员议题');
   }
-  if (/(立减|减)\s*5|省\s*5|5\s*元|优惠券|3\s*张/.test(text)) {
+  if (mentionsBenefit) {
     delta.interest += 12;
     delta.trust += 4;
     delta.objectionLevel -= 7;
     notes.push('量化收益');
   }
-  if (/次日|明天.*生效|有效期|满\d+/.test(text)) {
+  if (ruleCoverageCount >= 2) {
     delta.trust += 7;
     delta.objectionLevel -= 6;
     notes.push('解释规则');
   }
-  if (/必须|赶紧|一定要|立刻/.test(text)) {
+  if (mentionsProcess) {
+    delta.interest += 4;
+    delta.trust += 3;
+    notes.push('流程说明降低门槛');
+  }
+  if (hasEmpathy) {
+    delta.trust += 4;
+    delta.patience += 6;
+    delta.objectionLevel -= 4;
+    notes.push('共情缓和顾客防御');
+  }
+  if (memberAskCount >= 2 && !anyBenefitIntro) {
+    delta.patience -= 9;
+    delta.trust -= 6;
+    delta.objectionLevel += 7;
+    notes.push('重复追问会员引发反感');
+  }
+  if (hardSell) {
     delta.patience -= 12;
     delta.trust -= 10;
     delta.objectionLevel += 10;
     notes.push('强推触发反感');
+  }
+  if (longWinded && timePressure) {
+    delta.patience -= 6;
+    notes.push('顾客赶时间，冗长表达扣分');
   }
 
   next.trust = Math.max(0, Math.min(100, next.trust + delta.trust));
   next.patience = Math.max(0, Math.min(100, next.patience + delta.patience));
   next.interest = Math.max(0, Math.min(100, next.interest + delta.interest));
   next.objectionLevel = Math.max(0, Math.min(100, next.objectionLevel + delta.objectionLevel));
-  next.emotion = inferDemoEmotion(next);
+  next.ruleAwareness = Math.max(0, Math.min(100, (state.ruleAwareness || 20) + ruleCoverageCount * 8));
+  next.annoyance = Math.max(0, Math.min(100, (state.annoyance || 22)
+    + (hardSell ? 16 : 0)
+    + (memberAskCount >= 2 && !anyBenefitIntro ? 8 : 0)
+    + (longWinded && timePressure ? 5 : 0)
+    - (hasEmpathy ? 8 : 0)));
 
   if (next.turn <= 1) next.stage = 'opening';
-  else if (next.interest > 65) next.stage = 'value';
-  else if (next.objectionLevel > 62) next.stage = 'objection';
-  else if (next.interest > 78 && next.trust > 72) next.stage = 'done';
-  else next.stage = 'probing';
+  else if (!anyBenefitIntro) next.stage = 'probing';
+  else if (anyBenefitIntro && ruleCoverageCount < 3) next.stage = 'value';
+  else if (next.objectionLevel > 62 || next.annoyance > 70) next.stage = 'objection';
+  else if (anyProcessIntro) next.stage = 'closing';
+  else next.stage = 'value';
 
-  let intent = 'ask_detail';
-  let reason = '继续了解会员价值';
-  let keyConcern = '是否真的省钱';
-  if (next.stage === 'done') {
-    intent = 'ready_join';
-    reason = '价值和信任已达成';
-    keyConcern = '办理流程是否麻烦';
-  } else if (next.patience < 28) {
+  if (next.interest > 78 && next.trust > 72 && next.objectionLevel < 35 && anyProcessIntro) {
+    next.stage = 'done';
+  }
+
+  let intent = 'ask_benefit_amount';
+  let reason = '还需要确认本单价值';
+  let keyConcern = '本单到底能省多少';
+  if (next.patience < 25 || next.annoyance > 78) {
     intent = 'want_leave';
     reason = '耐心不足';
     keyConcern = '时间成本';
-  } else if (next.objectionLevel > 62) {
+  } else if (asksMember && state.memberStatus === 'unknown') {
+    intent = 'answer_member_status_no_card';
+    reason = '先回应有没有会员';
+    keyConcern = '先确认身份再沟通权益';
+  } else if (asksMember && memberAskCount >= 2 && !anyBenefitIntro) {
+    intent = 'raise_objection';
+    reason = '重复追问会员但没有价值说明';
+    keyConcern = '担心被强推';
+  } else if (asksMember && !anyBenefitIntro) {
+    intent = 'ask_join_benefit';
+    reason = '未讲办卡价值';
+    keyConcern = '办卡是否划算';
+  } else if (anyBenefitIntro && !ruleCoverage.effective) {
+    intent = 'ask_effective_time';
+    reason = '关心优惠何时生效';
+    keyConcern = '是不是次日生效';
+  } else if (anyBenefitIntro && !ruleCoverage.scope) {
+    intent = 'ask_scope';
+    reason = '确认优惠适用范围';
+    keyConcern = '是否全场通用';
+  } else if (anyBenefitIntro && !anyProcessIntro && next.interest >= 55) {
+    intent = 'ask_process';
+    reason = '价值认可后追问流程';
+    keyConcern = '办理是否麻烦';
+  } else if ((anyProcessIntro || next.stage === 'closing') && next.interest >= 62 && next.trust >= 58 && next.objectionLevel <= 48) {
+    intent = 'ready_join';
+    reason = '价值和信任已达成';
+    keyConcern = '办理流程是否麻烦';
+  } else if (next.objectionLevel > 62 || hardSell) {
     intent = 'raise_objection';
     reason = '异议较高';
     keyConcern = '办卡是否真划算';
-  } else if (/立减|优惠券/.test(text) && !/次日|生效/.test(text)) {
-    intent = 'ask_rule';
-    reason = '优惠规则未讲清';
-    keyConcern = '优惠券使用规则';
+  } else if (next.stage === 'done') {
+    intent = 'ready_join';
+    reason = '成交条件满足';
+    keyConcern = '办理效率';
+  }
+
+  const lastIntent = Array.isArray(state.intentHistory) ? state.intentHistory[state.intentHistory.length - 1] : '';
+  if (lastIntent && lastIntent === intent) {
+    const switchIntent = {
+      ask_benefit_amount: 'ask_effective_time',
+      ask_effective_time: 'ask_scope',
+      ask_scope: 'ask_process',
+      ask_process: 'ready_join',
+      raise_objection: 'delay_decision',
+    };
+    if (switchIntent[intent]) {
+      intent = switchIntent[intent];
+      reason += '（避免重复追问）';
+    }
   }
 
   const replyMap = {
+    answer_member_status_no_card: ['我还没办会员。', '我没有会员卡。', '不是会员。'],
+    ask_join_benefit: ['我没会员，办了这单能省多少？', '你先说办卡有什么实在好处。', '先说清楚值不值再办。'],
+    ask_benefit_amount: ['我今天这单到底能省多少？', '你给我算下这次能省多少钱。', '不办这单会差多少？'],
+    ask_effective_time: ['今天办卡今天能减吗？', '次日生效是明天开始吗？', '这个优惠当天不能用吗？'],
+    ask_scope: ['是不是全场都能用？', '哪些商品可以用这个券？', '这个券全场通用吗？'],
+    ask_process: ['办理要怎么操作？', '流程几步能办好？', '是扫码加微信就行吗？'],
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通吧。'],
     want_leave: ['我赶时间，先不用了。', '今天先不办，先结账吧。'],
     ask_rule: ['这券具体怎么用啊？', '这个优惠是当天就能用吗？', '有使用门槛吗？'],
     raise_objection: ['办了会不会不划算？', '这个卡不会有隐藏条件吧？'],
+    delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     ask_detail: ['除了立减，还有啥权益？', '那会员平时还能省什么？', '听着可以，还有别的好处吗？'],
   };
-  const customerReply = pickVariant(replyMap[intent], history, next.turn + history.length);
+  const customerReply = pickVariant(replyMap[intent] || replyMap.ask_detail, history, next.turn + history.length);
+  next.intentHistory = [...(Array.isArray(state.intentHistory) ? state.intentHistory : []), intent].slice(-4);
+  next.currentConcern = ({
+    ask_effective_time: 'time',
+    ask_process: 'convenience',
+    raise_objection: 'risk',
+    want_leave: 'time',
+  }[intent] || 'benefit');
+  next.emotion = intent === 'ready_join'
+    ? 'happy'
+    : intent === 'want_leave'
+      ? 'annoyed'
+      : inferDemoEmotion(next);
   const coachHint = buildIntentHint(intent, keyConcern);
 
   return {
@@ -279,7 +408,13 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     customerState: next,
     decisionTrace: {
       intent,
-      action: intent === 'ready_join' ? 'accept' : intent === 'want_leave' ? 'reject' : 'question',
+      action: intent === 'ready_join'
+        ? 'accept'
+        : intent === 'want_leave'
+          ? 'reject'
+          : intent === 'delay_decision'
+            ? 'hesitate'
+            : 'question',
       keyConcern,
       reason,
       coachHint,
