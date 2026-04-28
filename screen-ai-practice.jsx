@@ -392,6 +392,14 @@ function buildDemoTurn(prevState, clerkText, history = []) {
   let keyConcern = '本单到底能省多少';
   const recentIntents = Array.isArray(state.intentHistory) ? state.intentHistory.slice(-4) : [];
   const lastIntent = recentIntents[recentIntents.length - 1] || '';
+  const processStageLock = Boolean(
+    recentIntents.includes('ask_process')
+    && anyProcessIntro
+    && ruleCoverage.threshold
+    && ruleCoverage.effective
+    && !hardSell
+    && next.objectionLevel < 65
+  );
   const hasNewBusinessInfo = Boolean(
     mentionsBenefit
     || mentionsThreshold
@@ -420,6 +428,16 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     intent = 'interrupt_risk';
     reason = '顾客打断并进入防御';
     keyConcern = '担心被强推';
+  } else if (processStageLock) {
+    if (timePressure || next.patience < 45) {
+      intent = 'want_leave';
+      reason = '已问流程且赶时间，优先先结账';
+      keyConcern = '先完成收银';
+    } else {
+      intent = 'delay_decision';
+      reason = '已进入流程咨询阶段，不回跳旧价值异议';
+      keyConcern = '是否马上办';
+    }
   } else if (asksMember && state.memberStatus === 'unknown') {
     intent = 'answer_member_status_no_card';
     reason = '先回应有没有会员';
@@ -474,9 +492,9 @@ function buildDemoTurn(prevState, clerkText, history = []) {
       reason = '主意图=风险，确认有效期';
       keyConcern = '会不会浪费';
     } else {
-      intent = 'raise_objection';
-      reason = '主意图=风险，仍有防御心理';
-      keyConcern = '担心隐形条件';
+      intent = 'delay_decision';
+      reason = '主意图=风险，但无新风险触发，先不回跳异议';
+      keyConcern = '是否马上办';
     }
   }
 
@@ -525,7 +543,7 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通吧。'],
     want_leave: ['我赶时间，先不用了。', '今天先不办，先结账吧。', '嗯，先把账结了。'],
     ask_rule: ['这券具体怎么用啊？', '这个优惠是当天就能用吗？', '有使用门槛吗？'],
-    raise_objection: ['办了会不会不划算？', '这个卡不会有隐藏条件吧？'],
+    raise_objection: ['我担心会不会泄露信息。', '办了会不会总发消息打扰我？', '先说清楚隐私和打扰问题。'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     interrupt_time: ['您说重点，我有点赶时间。', '能简短点吗？我先结账。', '先说一句最关键的优惠。'],
     interrupt_risk: ['您别急着推，我先确认清楚。', '我担心有隐形条件，先说规则。', '先别催办卡，我想听明白。'],

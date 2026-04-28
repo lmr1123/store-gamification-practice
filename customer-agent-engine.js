@@ -560,6 +560,9 @@ function deriveScenarioSlots(history = [], currentClerkText = '', signal = {}, p
     .slice(-4)
     .map((text) => classifyCustomerIntentByText(text))
     .filter((x) => x !== 'unknown');
+  const allCustomerIntents = customerLines
+    .map((text) => classifyCustomerIntentByText(text))
+    .filter((x) => x !== 'unknown');
 
   const lastCustomerIntent = recentCustomerIntents[recentCustomerIntents.length - 1] || 'unknown';
   const prevCustomerIntent = recentCustomerIntents[recentCustomerIntents.length - 2] || 'unknown';
@@ -586,6 +589,16 @@ function deriveScenarioSlots(history = [], currentClerkText = '', signal = {}, p
     ? persona.concernPriority
     : ['benefit', 'time', 'risk', 'convenience'];
 
+  const customerAsked = {
+    benefit: allCustomerIntents.includes('ask_join_benefit') || allCustomerIntents.includes('ask_benefit_amount'),
+    effectiveTime: allCustomerIntents.includes('ask_effective_time'),
+    scope: allCustomerIntents.includes('ask_scope'),
+    process: allCustomerIntents.includes('ask_process'),
+    objection: allCustomerIntents.includes('raise_objection'),
+  };
+  const processStageEntered = customerAsked.process || recentCustomerIntents.includes('ask_process');
+  const coreValueQuestionsCovered = benefitIntroduced && ruleFacts.threshold && ruleFacts.effectiveTime;
+
   return {
     memberAsked: memberAskedCount > 0,
     memberAskedCount,
@@ -604,6 +617,9 @@ function deriveScenarioSlots(history = [], currentClerkText = '', signal = {}, p
     lastCustomerIntent,
     repeatedMemberAskNoValue: memberAskedCount >= 2 && !benefitIntroduced,
     concernPriority,
+    customerAsked,
+    processStageEntered,
+    coreValueQuestionsCovered,
   };
 }
 
@@ -949,6 +965,15 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
   const intentScores = normalizeIntentScores(state.intentScores || {}, persona);
   const mainIntent = INTENT_TYPES.includes(state.mainIntent) ? state.mainIntent : pickMainIntent(intentScores);
   const acceptanceReady = state.acceptanceReady || isIntentAccepted(intentScores);
+  const processStageLock = Boolean(
+    slots.processStageEntered
+    && slots.processExplained
+    && slots.coreValueQuestionsCovered
+    && !signal.hardSell
+    && !signal.unclearOrNegative
+    && !slots.annoyanceTriggered
+    && state.objectionLevel < 65
+  );
 
   let decision;
   if (acceptanceReady) {
@@ -961,6 +986,12 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
     decision = buildDecision('R01C', 'interrupt_time', 'question', CONCERN_LABEL.time, '顾客打断并要求更高沟通效率。', 'annoyed');
   } else if (signal.hardSell || slots.annoyanceTriggered) {
     decision = buildDecision('R08', 'interrupt_risk', 'question', CONCERN_LABEL.risk, '顾客对推销感敏感，先进入防御模式。', 'annoyed');
+  } else if (processStageLock) {
+    if (slots.timePressure || state.patience < 45) {
+      decision = buildDecision('R13B', 'want_leave', 'reject', '先完成结账', '顾客已问办理流程，但当前更倾向先完成结账。', 'neutral');
+    } else {
+      decision = buildDecision('R13', 'delay_decision', 'hesitate', '办理效率', '顾客已进入办理咨询阶段，默认不回跳到旧价值异议。', 'neutral');
+    }
   } else if (slots.memberAsked && !slots.memberStatusKnown) {
     const isHasCard = (persona.memberStatusDefault || 'no_card') === 'has_card';
     decision = buildDecision(
@@ -1008,7 +1039,7 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
       } else if (intentScores.risk <= 36 && slots.processExplained && !acceptanceReady) {
         decision = buildDecision('R12D', 'delay_decision', 'hesitate', CONCERN_LABEL.risk, '风险疑虑已降低，但仍需确认其他意图是否解决。', 'neutral');
       } else {
-        decision = buildDecision('R08B', 'raise_objection', 'question', CONCERN_LABEL.risk, '主意图=风险，仍需更多安心信息。', 'curious');
+        decision = buildDecision('R12E', 'delay_decision', 'hesitate', CONCERN_LABEL.risk, '主意图=风险，但未触发新风险信号，先不回跳异议。', 'neutral');
       }
     }
   }
@@ -1067,7 +1098,7 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
     interrupt_time: ['您说重点，我有点赶时间。', '能简短点吗？我先结账。', '先说一句最关键的优惠。'],
     interrupt_risk: ['您别急着推，我先确认清楚。', '我担心有隐形条件，先说规则。', '先别催办卡，我想听明白。'],
     topic_switch: ['先不聊办卡，我这药怎么结账？', '我先确认这单金额，再说会员。'],
-    raise_objection: ['听着像推销，我有点担心。', '会不会有隐藏条件？', '别急着让我办，先说清楚。'],
+    raise_objection: ['我主要担心信息会不会泄露。', '办了会不会总给我发骚扰信息？', '先说清楚隐私和打扰问题。'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通。', '那就办吧，你带我操作。'],
     want_leave: ['我赶时间，先不用了。', '今天先不办，先结账。', '嗯，先把账结了。'],
