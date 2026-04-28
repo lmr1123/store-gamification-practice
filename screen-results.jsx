@@ -170,6 +170,8 @@ function ResultsScreen({ result = {}, from = 'quiz', onContinue, onPracticeAgain
           </div>
         </div>
 
+        <IntentResolutionCard result={result} />
+
         {/* 本次对话逐句回顾 */}
         <ConversationReview result={result} />
       </div>
@@ -315,6 +317,47 @@ function ConversationReview({ result }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function IntentResolutionCard({ result }) {
+  const ir = result?.intent_resolution;
+  if (!ir || typeof ir !== 'object') return null;
+
+  const details = ir.details || {};
+  const value = details.value || {};
+  const time = details.time || {};
+  const risk = details.risk || {};
+  const items = [
+    { key: 'value', label: '价值意图', hint: '值不值', solved: !!value.solved, start: value.start, end: value.end },
+    { key: 'time', label: '时间意图', hint: '快不快', solved: !!time.solved, start: time.start, end: time.end },
+    { key: 'risk', label: '风险意图', hint: '稳不稳', solved: !!risk.solved, start: risk.start, end: risk.end },
+  ];
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 18, padding: '14px 16px', boxShadow: 'var(--shadow-card)' }}>
+      <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>🧭 顾客意图解决情况</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 10, fontWeight: 700 }}>
+        {ir.summary || '已输出顾客意图解决情况'}
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {items.map((item) => (
+          <div key={item.key} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 10px', background: item.solved ? '#E8FAF3' : '#FFF7E8' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink-1)' }}>
+                {item.label}（{item.hint}）
+              </div>
+              <div style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: item.solved ? 'var(--brand-ink)' : '#C96E1A' }}>
+                {item.solved ? '已解决' : '待继续'}
+              </div>
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
+              疑虑变化：{Number.isFinite(item.start) ? item.start : '-'} → {Number.isFinite(item.end) ? item.end : '-'}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

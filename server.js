@@ -570,6 +570,15 @@ ${dialog}
     "risks": ["<行为层风险>"],
     "next_actions": ["<下一轮可执行动作>"]
   },
+  "intent_resolution": {
+    "summary": "<例如：已解决2/3类顾客意图>",
+    "main_intent_flow": ["<value|time|risk按轮次变化>"],
+    "details": {
+      "value": {"start":<0-100>,"end":<0-100>,"solved":<true|false>},
+      "time": {"start":<0-100>,"end":<0-100>,"solved":<true|false>},
+      "risk": {"start":<0-100>,"end":<0-100>,"solved":<true|false>}
+    }
+  },
   "per_message": [
     {"text":"<店员原话>","tag":"good|great|warn|bad|null","note":"<15字内点评|null>"}
   ]
@@ -921,7 +930,7 @@ function deriveLineReview(text, signal) {
   return { tag: null, note: null };
 }
 
-function buildLocalBehaviorScore(conversation = []) {
+function buildLocalBehaviorScore(conversation = [], opts = {}) {
   const clerkLines = conversation.filter((m) => m.who === 'clerk').map((m) => m.text || '');
   const perMessage = clerkLines.map((line) => {
     const signal = analyzeClerkBehavior(line);
@@ -982,6 +991,10 @@ function buildLocalBehaviorScore(conversation = []) {
 
   const top = behaviorScores.reduce((a, b) => (b.score > a.score ? b : a), behaviorScores[0]);
   const low = behaviorScores.reduce((a, b) => (b.score < a.score ? b : a), behaviorScores[0]);
+  const intentResolution = agentEngine.evaluateIntentResolution(conversation, {
+    personaId: opts.personaId || '',
+    customerName: opts.customerName || '',
+  });
 
   return {
     score,
@@ -996,6 +1009,7 @@ function buildLocalBehaviorScore(conversation = []) {
       risks: [`${low.dimension}可能影响转化`],
       next_actions: ['先问需求再量化收益', '异议点用一句话讲清规则'],
     },
+    intent_resolution: intentResolution,
     per_message: perMessage,
   };
 }
@@ -1014,6 +1028,9 @@ function normalizeScorePayload(raw, fallback) {
     behavior_summary: raw.behavior_summary && typeof raw.behavior_summary === 'object'
       ? raw.behavior_summary
       : fallback.behavior_summary,
+    intent_resolution: raw.intent_resolution && typeof raw.intent_resolution === 'object'
+      ? raw.intent_resolution
+      : fallback.intent_resolution,
     per_message: Array.isArray(raw.per_message) ? raw.per_message : fallback.per_message,
   };
 }
@@ -1067,6 +1084,8 @@ const server = http.createServer((req, res) => {
           slotTable: playbook.slotTable,
           decisionRules: playbook.decisionRules,
           annoyanceTriggers: playbook.annoyanceTriggers,
+          intentEngine: playbook.intentEngine,
+          surveyDataSample: playbook.surveyDataSample,
         },
       });
     });
@@ -1096,7 +1115,10 @@ const server = http.createServer((req, res) => {
       const prevState = agentEngine.normalizeCustomerState(body.customerState || {}, persona);
       const signal = agentEngine.analyzeClerkBehavior(clerkText);
       const slots = agentEngine.deriveScenarioSlots(history, clerkText, signal, prevState, persona);
-      const stateOutcome = agentEngine.applyStateRules(prevState, signal, slots, persona);
+      const stateOutcome = agentEngine.applyStateRules(prevState, signal, slots, persona, {
+        clerkText,
+        history,
+      });
       const decision = agentEngine.decideCustomerAction({
         state: stateOutcome.nextState,
         signal,
@@ -1138,6 +1160,7 @@ const server = http.createServer((req, res) => {
           decisionTrace: {
             ruleId: decision.ruleId,
             intent: decision.intent,
+            mainIntent: nextState.mainIntent || stateOutcome?.intentOutcome?.mainIntent || 'value',
             action: expr?.action || decision.action,
             keyConcern: decision.keyConcern,
             reason: decision.reason,
@@ -1145,6 +1168,7 @@ const server = http.createServer((req, res) => {
             ruleNotes: stateOutcome.reasons.slice(0, 4),
             behaviorSignals: signal,
             slots,
+            intentEngine: stateOutcome.intentOutcome || null,
             delta: stateOutcome.delta,
           },
         });
@@ -1204,7 +1228,10 @@ const server = http.createServer((req, res) => {
 
       const conversation = Array.isArray(body.conversation) ? body.conversation : [];
       const scenario = String(body.scenario || DEFAULT_SCENARIO.name);
-      const fallback = buildLocalBehaviorScore(conversation);
+      const fallback = buildLocalBehaviorScore(conversation, {
+        personaId: String(body.personaId || ''),
+        customerName: String(body.customerName || ''),
+      });
 
       if (!GLM_KEY) {
         return writeJSON(res, 200, fallback);

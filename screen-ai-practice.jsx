@@ -31,11 +31,23 @@ const DEFAULT_CUSTOMER_STATE = {
   ruleAwareness: 20,
   annoyance: 22,
   currentConcern: 'benefit',
+  mainIntent: 'value',
+  intentScores: { value: 70, time: 56, risk: 54 },
+  intentResolved: { value: false, time: false, risk: false },
+  acceptanceReady: false,
+  intentDelta: { value: 0, time: 0, risk: 0 },
+  intentKeywordHits: { value: [], time: [], risk: [] },
   intentHistory: [],
   slotProgress: {},
   emotion: 'neutral',
   stage: 'opening',
   turn: 0,
+};
+
+const MAIN_INTENT_LABEL = {
+  value: '价值意图',
+  time: '时间意图',
+  risk: '风险意图',
 };
 
 const STAGE_LABEL = {
@@ -48,6 +60,17 @@ const STAGE_LABEL = {
 };
 
 function normalizeCustomerState(s) {
+  const scores = s?.intentScores || {};
+  const intentScores = {
+    value: Number.isFinite(scores?.value) ? scores.value : DEFAULT_CUSTOMER_STATE.intentScores.value,
+    time: Number.isFinite(scores?.time) ? scores.time : DEFAULT_CUSTOMER_STATE.intentScores.time,
+    risk: Number.isFinite(scores?.risk) ? scores.risk : DEFAULT_CUSTOMER_STATE.intentScores.risk,
+  };
+  const intentResolved = {
+    value: typeof s?.intentResolved?.value === 'boolean' ? s.intentResolved.value : intentScores.value <= 32,
+    time: typeof s?.intentResolved?.time === 'boolean' ? s.intentResolved.time : intentScores.time <= 30,
+    risk: typeof s?.intentResolved?.risk === 'boolean' ? s.intentResolved.risk : intentScores.risk <= 34,
+  };
   return {
     ...DEFAULT_CUSTOMER_STATE,
     ...(s || {}),
@@ -56,6 +79,10 @@ function normalizeCustomerState(s) {
     interest: Number.isFinite(s?.interest) ? s.interest : DEFAULT_CUSTOMER_STATE.interest,
     budgetSensitivity: Number.isFinite(s?.budgetSensitivity) ? s.budgetSensitivity : DEFAULT_CUSTOMER_STATE.budgetSensitivity,
     objectionLevel: Number.isFinite(s?.objectionLevel) ? s.objectionLevel : DEFAULT_CUSTOMER_STATE.objectionLevel,
+    mainIntent: ['value', 'time', 'risk'].includes(s?.mainIntent) ? s.mainIntent : DEFAULT_CUSTOMER_STATE.mainIntent,
+    intentScores,
+    intentResolved,
+    acceptanceReady: typeof s?.acceptanceReady === 'boolean' ? s.acceptanceReady : (intentScores.value <= 32 && intentScores.time <= 30 && intentScores.risk <= 34),
   };
 }
 
@@ -86,11 +113,16 @@ async function callCustomerTurn({ clerkText, customerState, history, customerNam
   return resp.json();
 }
 
-async function callScore(conversation) {
+async function callScore(conversation, meta = {}) {
   const resp = await fetch(`${WORKER_URL}/api/score`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation, scenario: SCENARIO }),
+    body: JSON.stringify({
+      conversation,
+      scenario: SCENARIO,
+      personaId: meta.personaId || '',
+      customerName: meta.customerName || '',
+    }),
   });
   if (!resp.ok) throw new Error(`Score API ${resp.status}`);
   return resp.json();
@@ -136,14 +168,15 @@ function inferDemoEmotion(state) {
   return 'neutral';
 }
 
-function getLastCustomerText(history = []) {
-  const last = [...history].reverse().find((m) => m?.who === 'customer' && m?.text);
-  return last ? String(last.text).trim() : '';
-}
-
 function pickVariant(options, history = [], seed = 0) {
-  const last = getLastCustomerText(history);
-  const pool = (options || []).filter((item) => item && item !== last);
+  const recent = new Set(
+    [...history]
+      .filter((m) => m?.who === 'customer' && m?.text)
+      .map((m) => String(m.text).trim())
+      .filter(Boolean)
+      .slice(-4)
+  );
+  const pool = (options || []).filter((item) => item && !recent.has(item));
   const target = pool.length ? pool : options;
   if (!target || !target.length) return '你再说详细一点。';
   return target[Math.abs(seed) % target.length];
@@ -178,6 +211,14 @@ function buildIntentHint(intent, keyConcern) {
     ask_process: {
       customerMindset: '顾客在确认办理是否麻烦。',
       clerkTip: '建议：按“扫码-加企微-授权办卡”三步说明。',
+    },
+    interrupt_time: {
+      customerMindset: '顾客打断你了，想要更短更快的信息。',
+      clerkTip: '建议：先说重点金额，再说最短流程。',
+    },
+    interrupt_risk: {
+      customerMindset: '顾客打断并防御，担心被强推或有隐形条件。',
+      clerkTip: '建议：先共情，再讲规则边界和隐私保障。',
     },
     ready_join: {
       customerMindset: '顾客已经接受，等你引导完成办理。',
@@ -224,6 +265,7 @@ function buildDemoTurn(prevState, clerkText, history = []) {
   const mentionsScope = /全场|通用|都能用|范围/.test(text);
   const mentionsProcess = processRegex.test(text);
   const hardSell = /必须|赶紧|一定要|立刻|不办就亏|你就办/.test(text);
+  const vaguePitch = /很划算|很值|很优惠|特别好(?!.*\d)/.test(text);
   const hasEmpathy = /理解|明白|别着急|我帮您|放心/.test(text);
   const longWinded = text.length > 58;
   const timePressure = /赶时间|快点|先结账|着急/.test(lastCustomerLine);
@@ -310,8 +352,40 @@ function buildDemoTurn(prevState, clerkText, history = []) {
   else next.stage = 'value';
 
   if (next.interest > 78 && next.trust > 72 && next.objectionLevel < 35 && anyProcessIntro) {
-    next.stage = 'done';
+    next.stage = 'closing';
   }
+
+  const prevIntentScores = state.intentScores || { value: 70, time: 56, risk: 54 };
+  const intentDelta = { value: 0, time: 0, risk: 0 };
+  if (mentionsBenefit) intentDelta.value -= 18;
+  if (mentionsThreshold) intentDelta.value -= 8;
+  if (!anyBenefitIntro && asksMember) intentDelta.value += 8;
+  if (memberAskCount >= 2 && !anyBenefitIntro) intentDelta.value += 10;
+  if (vaguePitch) intentDelta.value += 6;
+
+  if (timePressure) intentDelta.time += 10;
+  if (longWinded) intentDelta.time += 9;
+  if (mentionsProcess) intentDelta.time -= 16;
+  if (/一分钟|10秒|很快|不耽误/.test(text)) intentDelta.time -= 8;
+
+  if (hardSell) intentDelta.risk += 16;
+  if (hasEmpathy) intentDelta.risk -= 8;
+  if (mentionsEffective || mentionsScope || mentionsExpiry) intentDelta.risk -= 8;
+  if (/不泄露|不会打扰|不骚扰|全国通用|上市公司/.test(text)) intentDelta.risk -= 10;
+
+  next.intentScores = {
+    value: Math.max(0, Math.min(100, (Number(prevIntentScores.value) || 70) + intentDelta.value)),
+    time: Math.max(0, Math.min(100, (Number(prevIntentScores.time) || 56) + intentDelta.time)),
+    risk: Math.max(0, Math.min(100, (Number(prevIntentScores.risk) || 54) + intentDelta.risk)),
+  };
+  next.mainIntent = Object.entries(next.intentScores).sort((a, b) => b[1] - a[1])[0][0];
+  next.acceptanceReady = next.intentScores.value <= 32 && next.intentScores.time <= 30 && next.intentScores.risk <= 34;
+  next.intentResolved = {
+    value: next.intentScores.value <= 32,
+    time: next.intentScores.time <= 30,
+    risk: next.intentScores.risk <= 34,
+  };
+  if (next.acceptanceReady) next.stage = 'done';
 
   let intent = 'ask_benefit_amount';
   let reason = '还需要确认本单价值';
@@ -326,7 +400,11 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     || mentionsScope
     || mentionsProcess
   );
-  if (next.patience < 25 || next.annoyance > 78) {
+  if (next.acceptanceReady) {
+    intent = 'ready_join';
+    reason = '价值/时间/风险三类意图都已降到阈值';
+    keyConcern = '办理效率';
+  } else if (next.patience < 25 || next.annoyance > 78) {
     intent = 'want_leave';
     reason = '耐心不足';
     keyConcern = '时间成本';
@@ -334,42 +412,72 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     intent = 'want_leave';
     reason = '已表达先结账，当前无新增价值信息';
     keyConcern = '先完成结账';
+  } else if (longWinded && timePressure) {
+    intent = 'interrupt_time';
+    reason = '顾客打断，要求更短更快';
+    keyConcern = '不要耽误结账';
+  } else if (hardSell) {
+    intent = 'interrupt_risk';
+    reason = '顾客打断并进入防御';
+    keyConcern = '担心被强推';
   } else if (asksMember && state.memberStatus === 'unknown') {
     intent = 'answer_member_status_no_card';
     reason = '先回应有没有会员';
     keyConcern = '先确认身份再沟通权益';
-  } else if (asksMember && memberAskCount >= 2 && !anyBenefitIntro) {
-    intent = 'raise_objection';
-    reason = '重复追问会员但没有价值说明';
-    keyConcern = '担心被强推';
-  } else if (asksMember && !anyBenefitIntro) {
-    intent = 'ask_join_benefit';
-    reason = '未讲办卡价值';
-    keyConcern = '办卡是否划算';
-  } else if (anyBenefitIntro && !ruleCoverage.effective) {
-    intent = 'ask_effective_time';
-    reason = '关心优惠何时生效';
-    keyConcern = '是不是次日生效';
-  } else if (anyBenefitIntro && !ruleCoverage.scope) {
-    intent = 'ask_scope';
-    reason = '确认优惠适用范围';
-    keyConcern = '是否全场通用';
-  } else if (anyBenefitIntro && !anyProcessIntro && next.interest >= 55) {
-    intent = 'ask_process';
-    reason = '价值认可后追问流程';
-    keyConcern = '办理是否麻烦';
-  } else if ((anyProcessIntro || next.stage === 'closing') && next.interest >= 62 && next.trust >= 58 && next.objectionLevel <= 48) {
-    intent = 'ready_join';
-    reason = '价值和信任已达成';
-    keyConcern = '办理流程是否麻烦';
-  } else if (next.objectionLevel > 62 || hardSell) {
-    intent = 'raise_objection';
-    reason = '异议较高';
-    keyConcern = '办卡是否真划算';
-  } else if (next.stage === 'done') {
-    intent = 'ready_join';
-    reason = '成交条件满足';
-    keyConcern = '办理效率';
+  } else if (next.mainIntent === 'value') {
+    if (!anyBenefitIntro) {
+      intent = 'ask_join_benefit';
+      reason = '主意图=价值，先问办卡值不值';
+      keyConcern = '办卡是否划算';
+    } else if (!ruleCoverage.threshold) {
+      intent = 'ask_rule';
+      reason = '主意图=价值，先确认门槛';
+      keyConcern = '满9.9减5怎么用';
+    } else if (next.intentScores.value >= 48) {
+      intent = 'ask_benefit_amount';
+      reason = '主意图=价值，仍需量化本单';
+      keyConcern = '本单到底能省多少';
+    } else if (!anyProcessIntro) {
+      intent = 'ask_process';
+      reason = '价值疑虑下降，转流程';
+      keyConcern = '办理是否麻烦';
+    } else {
+      intent = 'delay_decision';
+      reason = '价值已清晰，顾客在做最后判断';
+      keyConcern = '是否马上办';
+    }
+  } else if (next.mainIntent === 'time') {
+    if (timePressure && !hasNewBusinessInfo) {
+      intent = 'want_leave';
+      reason = '主意图=时间，优先先结账';
+      keyConcern = '不要耽误时间';
+    } else if (!anyProcessIntro) {
+      intent = 'ask_process';
+      reason = '主意图=时间，优先问流程快不快';
+      keyConcern = '办理耗时';
+    } else {
+      intent = 'delay_decision';
+      reason = '主意图=时间，倾向先完成当前收银';
+      keyConcern = '先收银后决定';
+    }
+  } else {
+    if (!ruleCoverage.effective) {
+      intent = 'ask_effective_time';
+      reason = '主意图=风险，确认生效时间';
+      keyConcern = '今天能不能减';
+    } else if (!ruleCoverage.scope) {
+      intent = 'ask_scope';
+      reason = '主意图=风险，确认适用范围';
+      keyConcern = '是否全场通用';
+    } else if (!ruleCoverage.expiry) {
+      intent = 'ask_rule';
+      reason = '主意图=风险，确认有效期';
+      keyConcern = '会不会浪费';
+    } else {
+      intent = 'raise_objection';
+      reason = '主意图=风险，仍有防御心理';
+      keyConcern = '担心隐形条件';
+    }
   }
 
   const loopSensitiveIntents = [
@@ -378,6 +486,8 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     'ask_effective_time',
     'ask_scope',
     'ask_process',
+    'interrupt_time',
+    'interrupt_risk',
     'raise_objection',
   ];
   const needAvoidRepeat = loopSensitiveIntents.includes(intent) && recentIntents.includes(intent);
@@ -392,7 +502,9 @@ function buildDemoTurn(prevState, clerkText, history = []) {
       ask_benefit_amount: [...missingFactIntents, 'raise_objection', 'delay_decision'],
       ask_effective_time: ['ask_scope', 'ask_process', 'raise_objection', 'delay_decision'],
       ask_scope: ['ask_process', 'raise_objection', 'delay_decision'],
-      ask_process: ['ready_join', 'delay_decision', 'want_leave'],
+      ask_process: ['delay_decision', 'ask_detail', 'want_leave'],
+      interrupt_time: ['ask_process', 'delay_decision', 'want_leave'],
+      interrupt_risk: ['raise_objection', 'ask_scope', 'delay_decision'],
       raise_objection: ['delay_decision', 'ask_process', 'want_leave'],
     };
     const candidates = [...(replacementChain[intent] || []), 'delay_decision', 'want_leave'].filter(Boolean);
@@ -415,6 +527,9 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     ask_rule: ['这券具体怎么用啊？', '这个优惠是当天就能用吗？', '有使用门槛吗？'],
     raise_objection: ['办了会不会不划算？', '这个卡不会有隐藏条件吧？'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
+    interrupt_time: ['您说重点，我有点赶时间。', '能简短点吗？我先结账。', '先说一句最关键的优惠。'],
+    interrupt_risk: ['您别急着推，我先确认清楚。', '我担心有隐形条件，先说规则。', '先别催办卡，我想听明白。'],
+    topic_switch: ['先不聊办卡，我先结账。', '我先看这单金额，会员等会再说。'],
     ask_detail: ['除了立减，还有啥权益？', '那会员平时还能省什么？', '听着可以，还有别的好处吗？'],
   };
   const customerReply = pickVariant(replyMap[intent] || replyMap.ask_detail, history, next.turn + history.length);
@@ -422,7 +537,9 @@ function buildDemoTurn(prevState, clerkText, history = []) {
   next.currentConcern = ({
     ask_effective_time: 'time',
     ask_process: 'convenience',
+    interrupt_time: 'time',
     raise_objection: 'risk',
+    interrupt_risk: 'risk',
     want_leave: 'time',
   }[intent] || 'benefit');
   next.emotion = intent === 'ready_join'
@@ -449,6 +566,13 @@ function buildDemoTurn(prevState, clerkText, history = []) {
       reason,
       coachHint,
       ruleNotes: notes,
+      mainIntent: next.mainIntent,
+      intentEngine: {
+        mainIntent: next.mainIntent,
+        scores: next.intentScores,
+        resolved: next.intentResolved,
+        acceptanceReady: next.acceptanceReady,
+      },
       delta,
     },
   };
@@ -902,21 +1026,32 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
     let result;
     if ((WORKER_URL || demoMode) && conversationRef.current.filter((m) => m.who === 'clerk').length > 0) {
       try {
-        result = await callScore(conversationRef.current);
+        result = await callScore(conversationRef.current, {
+          personaId: customerMeta.personaId || '',
+          customerName: customerMeta.customerName || '',
+        });
       } catch {
-        result = buildFallbackScore(covered);
+        result = buildFallbackScore(covered, customerStateRef.current);
       }
     } else {
-      result = buildFallbackScore(covered);
+      result = buildFallbackScore(covered, customerStateRef.current);
     }
 
     setScoring(false);
     onComplete({ ...result, conversation: conversationRef.current });
   }
 
-  function buildFallbackScore(covered) {
+  function buildFallbackScore(covered, state = {}) {
     const base = Math.round(55 + (covered / KEY_POINTS.length) * 38 + Math.random() * 8);
     const score = Math.min(base, 99);
+    const threshold = { value: 32, time: 30, risk: 34 };
+    const intentScores = state?.intentScores || { value: 68, time: 52, risk: 56 };
+    const intentResolved = {
+      value: intentScores.value <= threshold.value,
+      time: intentScores.time <= threshold.time,
+      risk: intentScores.risk <= threshold.risk,
+    };
+    const solvedCount = Object.values(intentResolved).filter(Boolean).length;
     return {
       score,
       stars: score >= 85 ? 3 : score >= 65 ? 2 : 1,
@@ -935,6 +1070,17 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
         strengths: ['价值表达清晰度提升'],
         risks: ['异议处理略弱，可能影响转化'],
         next_actions: ['先问需求再给优惠', '规则解释保持一句话闭环'],
+      },
+      intent_resolution: {
+        summary: `已解决${solvedCount}/3类顾客意图`,
+        start_scores: { value: 72, time: 58, risk: 55 },
+        end_scores: intentScores,
+        resolved: intentResolved,
+        details: {
+          value: { start: 72, end: intentScores.value, solved: intentResolved.value },
+          time: { start: 58, end: intentScores.time, solved: intentResolved.time },
+          risk: { start: 55, end: intentScores.risk, solved: intentResolved.risk },
+        },
       },
       per_message: [],
     };
@@ -1124,6 +1270,13 @@ function buildReadableHint(decisionTrace) {
 function CustomerIntentPanel({ customerState, decisionTrace }) {
   const state = normalizeCustomerState(customerState);
   const hint = buildReadableHint(decisionTrace);
+  const mainIntent = decisionTrace?.mainIntent || state.mainIntent || 'value';
+  const solvedCount = Object.values(state.intentResolved || {}).filter(Boolean).length;
+  const focusText = {
+    value: '顾客现在重点在“值不值”',
+    time: '顾客现在重点在“快不快”',
+    risk: '顾客现在重点在“稳不稳”',
+  }[mainIntent] || '顾客还在权衡办理价值';
 
   return (
     <div style={{ background: '#fff', borderRadius: 14, padding: '10px 12px', boxShadow: 'var(--shadow-card)' }}>
@@ -1136,10 +1289,16 @@ function CustomerIntentPanel({ customerState, decisionTrace }) {
 
       <div style={{ display: 'grid', gap: 6 }}>
         <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>
+          当前主意图：<span style={{ fontWeight: 800 }}>{MAIN_INTENT_LABEL[mainIntent] || MAIN_INTENT_LABEL.value}</span>（{focusText}）
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>
           顾客此刻在想：<span style={{ fontWeight: 700 }}>{hint.customerMindset}</span>
         </div>
         <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.45 }}>
           当前疑虑：{hint.keyConcern}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+          进展：已解决 {solvedCount}/3 类顾客意图
         </div>
         <div style={{ fontSize: 12, color: 'var(--brand-ink)', lineHeight: 1.5, background: 'var(--brand-soft)', borderRadius: 10, padding: '7px 9px', border: '1px solid #BEEFD8' }}>
           {hint.clerkTip}

@@ -131,6 +131,219 @@ const EMOTION_LIST = ['neutral', 'curious', 'interested', 'happy', 'annoyed'];
 const STAGE_LIST = ['opening', 'probing', 'value', 'objection', 'closing', 'done'];
 const MEMBER_STATUS_LIST = ['unknown', 'has_card', 'no_card'];
 const CONCERN_LIST = ['benefit', 'time', 'risk', 'convenience'];
+const INTENT_TYPES = ['value', 'time', 'risk'];
+const INTENT_LABEL = {
+  value: '价值意图',
+  time: '时间意图',
+  risk: '风险意图',
+};
+
+const INTENT_ENGINE_CONFIG = {
+  version: 'v2-intent-engine',
+  acceptThresholds: { value: 32, time: 30, risk: 34 },
+  initialScores: { value: 70, time: 56, risk: 54 },
+  maxKeywordPerIntent: 24,
+  signalWeight: {
+    value: {
+      quantifiesBenefit: -18,
+      explainsThreshold: -8,
+      mentionsCoupon: -6,
+      vaguePitch: +8,
+      repeatedMemberAskNoValue: +10,
+      asksMemberWithoutValue: +7,
+    },
+    time: {
+      mentionsProcess: -16,
+      longWinded: +10,
+      timePressure: +10,
+      conciseClose: -8,
+      repeatedMemberAskNoValue: +6,
+    },
+    risk: {
+      hardSell: +16,
+      unclearOrNegative: +12,
+      annoyanceTriggered: +10,
+      explainsRules: -9,
+      hasEmpathy: -8,
+      privacyAssure: -12,
+      nationwideAssure: -7,
+    },
+  },
+  surveySeeds: {
+    value: ['优惠', '立减', '减5', '券', '会员价', '折', '积分', '礼品', '省钱', '满减', '代金券', '活动力度'],
+    time: ['赶时间', '快', '先结账', '流程', '扫码', '一分钟', '10秒', '不耽误', '马上', '现在', '下次再办'],
+    risk: ['骚扰', '泄露', '隐私', '强推', '不想办', '不需要', '套路', '担心', '靠谱吗', '不打扰', '全国通用', '上市公司'],
+  },
+};
+
+// 店长调研语料（节选结构化）：
+// 来源：你提供的门店调研原始回复，按“真实一线话术”沉淀为种子语料。
+const STORE_MANAGER_SURVEY_SNIPPETS = [
+  '新会员送15元券，满9.9减5',
+  '新办会员有3张5元券',
+  '会员积分可以兑换礼品',
+  '会员全国通用',
+  '如果不办也没关系先结账',
+  '顾客怕骚扰电话',
+  '顾客担心信息泄露',
+  '免费办卡立减5元',
+  '次日生效，一个月有效',
+  '会员日88折，双倍积分',
+  '扫码一分钟完成办理',
+  '不耽误您时间，很快',
+  '买药享会员价还可以积分',
+  '顾客问券具体怎么用',
+  '顾客说优惠力度小',
+  '顾客说不常来，不想办',
+  '顾客赶时间先结账',
+  '顾客怕打电话推销',
+  '办卡免费，无额外费用',
+  '可升级至尊会员，优惠更大',
+  '当次立减，下次继续可用',
+  '先问是否有会员卡',
+  '未办卡就先讲本单能省多少',
+  '规则讲清：门槛、生效、有效期、范围',
+  '反感场景要礼貌结束邀约',
+  '顾客拒绝后可轻提醒下次办理',
+  '全国连锁都能用',
+  '今天先不办，改天再说',
+  '买得多积分越多',
+  '会员权益不只首单',
+  '新会员立减3元，次月减5元',
+  '办卡步骤简化，扫一扫',
+  '手机号授权即可',
+  '不要连续强推',
+  '先共情再解释',
+  '可以帮顾客算账',
+  '本单省几元最关键',
+  '顾客问是不是全场能用',
+  '顾客问当天能不能用券',
+  '顾客问有效期多久',
+  '礼貌结束：好的先帮您结账',
+  '顾客说怕验证码泄露',
+  '顾客说怕短信骚扰',
+  '不住附近也可以全国通用',
+  '不常买药也可长期受益',
+  '积分可当钱花',
+  '有会员日赠券和礼品',
+  '会员卡免费全国连锁通用',
+  '本次优惠力度实在',
+  '流程明确：扫码加企微点小程序',
+  '先收银后补邀约',
+  '顾客急着用药',
+  '需要一句话重点',
+  '表达啰嗦顾客会不耐烦',
+  '门店高频异议：优惠小、没时间、怕骚扰',
+  '高频异议：不想透露电话',
+  '高频异议：已经有别的会员卡',
+  '高频异议：下次再办',
+  '店员建议：先讲本单再讲长期权益',
+  '店员建议：不要死追一个问题',
+];
+
+function splitSurveySegments(text = '') {
+  return String(text || '')
+    .split(/[，,。；;！!？?\n\r、\t ]+/)
+    .map((x) => firstText(x))
+    .filter((x) => x && /[\u4e00-\u9fa5]/.test(x) && x.length >= 2 && x.length <= 14);
+}
+
+function buildIntentKeywordMapFromSurvey(snippets = [], config = INTENT_ENGINE_CONFIG) {
+  const seedMap = config.surveySeeds || {};
+  const counter = {
+    value: new Map(),
+    time: new Map(),
+    risk: new Map(),
+  };
+  const add = (intent, token, weight = 1) => {
+    if (!counter[intent] || !token) return;
+    counter[intent].set(token, (counter[intent].get(token) || 0) + weight);
+  };
+
+  INTENT_TYPES.forEach((intent) => {
+    (seedMap[intent] || []).forEach((seed) => add(intent, seed, 4));
+  });
+
+  (snippets || []).forEach((line) => {
+    const segments = splitSurveySegments(line);
+    segments.forEach((seg) => {
+      INTENT_TYPES.forEach((intent) => {
+        const hit = (seedMap[intent] || []).some((seed) => seg.includes(seed) || seed.includes(seg));
+        if (hit) add(intent, seg, Math.max(1, Math.floor(seg.length / 3)));
+      });
+    });
+  });
+
+  const result = {};
+  INTENT_TYPES.forEach((intent) => {
+    result[intent] = [...counter[intent].entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, config.maxKeywordPerIntent || 24)
+      .map(([token]) => token);
+  });
+  return result;
+}
+
+const AUTO_INTENT_KEYWORDS = buildIntentKeywordMapFromSurvey(STORE_MANAGER_SURVEY_SNIPPETS, INTENT_ENGINE_CONFIG);
+
+function initIntentScores(persona = {}) {
+  const base = { ...(INTENT_ENGINE_CONFIG.initialScores || { value: 70, time: 56, risk: 54 }) };
+  const pri = Array.isArray(persona.concernPriority) ? persona.concernPriority : [];
+  const mapToIntent = {
+    benefit: 'value',
+    convenience: 'time',
+    time: 'time',
+    risk: 'risk',
+  };
+  pri.forEach((item, idx) => {
+    const intent = mapToIntent[item];
+    if (!intent) return;
+    const bump = idx === 0 ? 10 : idx === 1 ? 6 : idx === 2 ? 3 : 0;
+    base[intent] = Math.min(100, base[intent] + bump);
+  });
+  return base;
+}
+
+function normalizeIntentScores(input = {}, persona = {}) {
+  const base = initIntentScores(persona);
+  return {
+    value: clamp(toInt(input.value, base.value), 0, 100),
+    time: clamp(toInt(input.time, base.time), 0, 100),
+    risk: clamp(toInt(input.risk, base.risk), 0, 100),
+  };
+}
+
+function pickMainIntent(scores = {}) {
+  const arr = INTENT_TYPES.map((intent) => ({ intent, score: toInt(scores[intent], 0) }));
+  arr.sort((a, b) => b.score - a.score);
+  return arr[0]?.intent || 'value';
+}
+
+function isIntentAccepted(scores = {}, thresholds = INTENT_ENGINE_CONFIG.acceptThresholds) {
+  return INTENT_TYPES.every((intent) => toInt(scores[intent], 100) <= toInt(thresholds[intent], 35));
+}
+
+function resolveIntentFlags(scores = {}, thresholds = INTENT_ENGINE_CONFIG.acceptThresholds) {
+  return INTENT_TYPES.reduce((acc, intent) => {
+    acc[intent] = toInt(scores[intent], 100) <= toInt(thresholds[intent], 35);
+    return acc;
+  }, {});
+}
+
+function detectIntentKeywordHits(text = '', keywordMap = AUTO_INTENT_KEYWORDS) {
+  const t = firstText(text);
+  const hit = {
+    value: [],
+    time: [],
+    risk: [],
+  };
+  INTENT_TYPES.forEach((intent) => {
+    (keywordMap[intent] || []).forEach((token) => {
+      if (token && t.includes(token)) hit[intent].push(token);
+    });
+  });
+  return hit;
+}
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -168,6 +381,8 @@ function resolvePersona(input = {}) {
 
 function buildInitialCustomerState(personaInput = {}) {
   const persona = resolvePersona(personaInput);
+  const intentScores = initIntentScores(persona);
+  const intentResolved = resolveIntentFlags(intentScores);
   const base = {
     trust: 45,
     patience: 72,
@@ -182,6 +397,12 @@ function buildInitialCustomerState(personaInput = {}) {
     annoyance: 22,
     currentConcern: persona.concernPriority?.[0] || 'benefit',
     intentHistory: [],
+    mainIntent: pickMainIntent(intentScores),
+    intentScores,
+    intentResolved,
+    acceptanceReady: isIntentAccepted(intentScores),
+    intentDelta: { value: 0, time: 0, risk: 0 },
+    intentKeywordHits: { value: [], time: [], risk: [] },
     slotProgress: {},
   };
   return {
@@ -205,6 +426,10 @@ function normalizeCustomerState(input = {}, personaInput = {}) {
       .slice(-4)
     : [];
 
+  const intentScores = normalizeIntentScores(input.intentScores || {}, resolvePersona(personaInput));
+  const intentResolved = resolveIntentFlags(intentScores);
+  const mainIntent = INTENT_TYPES.includes(input.mainIntent) ? input.mainIntent : pickMainIntent(intentScores);
+
   return {
     trust: clamp(toInt(input.trust, base.trust), 0, 100),
     patience: clamp(toInt(input.patience, base.patience), 0, 100),
@@ -219,6 +444,20 @@ function normalizeCustomerState(input = {}, personaInput = {}) {
     annoyance: clamp(toInt(input.annoyance, base.annoyance), 0, 100),
     currentConcern: CONCERN_LIST.includes(input.currentConcern) ? input.currentConcern : base.currentConcern,
     intentHistory,
+    mainIntent,
+    intentScores,
+    intentResolved,
+    acceptanceReady: typeof input.acceptanceReady === 'boolean' ? input.acceptanceReady : isIntentAccepted(intentScores),
+    intentDelta: {
+      value: toInt(input?.intentDelta?.value, 0),
+      time: toInt(input?.intentDelta?.time, 0),
+      risk: toInt(input?.intentDelta?.risk, 0),
+    },
+    intentKeywordHits: {
+      value: Array.isArray(input?.intentKeywordHits?.value) ? input.intentKeywordHits.value.slice(0, 6) : [],
+      time: Array.isArray(input?.intentKeywordHits?.time) ? input.intentKeywordHits.time.slice(0, 6) : [],
+      risk: Array.isArray(input?.intentKeywordHits?.risk) ? input.intentKeywordHits.risk.slice(0, 6) : [],
+    },
     slotProgress,
   };
 }
@@ -369,6 +608,9 @@ function deriveScenarioSlots(history = [], currentClerkText = '', signal = {}, p
 }
 
 function inferCurrentConcern(state, slots, persona) {
+  if (state.mainIntent === 'value') return 'benefit';
+  if (state.mainIntent === 'time') return 'time';
+  if (state.mainIntent === 'risk') return 'risk';
   if (slots.timePressure && state.patience < 55) return 'time';
   if (slots.annoyanceTriggered || state.objectionLevel > 62) return 'risk';
   if (!slots.benefitIntroduced || !slots.valueQuantified) return 'benefit';
@@ -379,7 +621,90 @@ function inferCurrentConcern(state, slots, persona) {
   return order[0] || 'benefit';
 }
 
-function applyStateRules(prevStateInput, signal, slots, personaInput = {}) {
+function evaluateIntentEngine({
+  prevState = {},
+  signal = {},
+  slots = {},
+  persona = {},
+  clerkText = '',
+}) {
+  const prevScores = normalizeIntentScores(prevState.intentScores || {}, persona);
+  const keywordHits = detectIntentKeywordHits(clerkText);
+  const delta = { value: 0, time: 0, risk: 0 };
+  const notes = [];
+  const w = INTENT_ENGINE_CONFIG.signalWeight || {};
+
+  function bump(intent, amount, note) {
+    delta[intent] += amount;
+    if (note) notes.push(note);
+  }
+
+  const hasNewBusinessInfo = Boolean(
+    signal.quantifiesBenefit
+    || signal.explainsRules
+    || signal.explainsThreshold
+    || signal.explainsEffective
+    || signal.explainsExpiry
+    || signal.explainsScope
+    || signal.mentionsProcess
+  );
+
+  if (signal.quantifiesBenefit) bump('value', w.value?.quantifiesBenefit || -18, '量化优惠降低价值疑虑');
+  if (signal.explainsThreshold) bump('value', w.value?.explainsThreshold || -8, '门槛明确降低价值疑虑');
+  if (signal.mentionsCoupon) bump('value', w.value?.mentionsCoupon || -6, '优惠券信息降低价值疑虑');
+  if (signal.vaguePitch) bump('value', w.value?.vaguePitch || 8, '空泛表达提高价值疑虑');
+  if (slots.repeatedMemberAskNoValue) bump('value', w.value?.repeatedMemberAskNoValue || 10, '未给价值反复追问，价值疑虑上升');
+  if (signal.asksMember && !slots.benefitIntroduced) bump('value', w.value?.asksMemberWithoutValue || 7, '只问办卡未讲价值');
+
+  if (signal.mentionsProcess) bump('time', w.time?.mentionsProcess || -16, '流程清楚降低时间焦虑');
+  if (signal.longWinded) bump('time', w.time?.longWinded || 10, '话术冗长增加时间焦虑');
+  if (slots.timePressure) bump('time', w.time?.timePressure || 10, '顾客赶时间，时间焦虑上升');
+  if (/一分钟|10秒|很快|不耽误/.test(firstText(clerkText))) bump('time', w.time?.conciseClose || -8, '强调效率降低时间焦虑');
+  if (slots.repeatedMemberAskNoValue) bump('time', w.time?.repeatedMemberAskNoValue || 6, '重复邀约增加时间焦虑');
+
+  if (signal.hardSell) bump('risk', w.risk?.hardSell || 16, '强推提升风险疑虑');
+  if (signal.unclearOrNegative) bump('risk', w.risk?.unclearOrNegative || 12, '表述不清提升风险疑虑');
+  if (slots.annoyanceTriggered) bump('risk', w.risk?.annoyanceTriggered || 10, '反感信号提升风险疑虑');
+  if (signal.explainsRules) bump('risk', w.risk?.explainsRules || -9, '规则讲清降低风险疑虑');
+  if (signal.hasEmpathy) bump('risk', w.risk?.hasEmpathy || -8, '共情降低风险疑虑');
+  if (/不泄露|隐私|不会打扰|不骚扰/.test(firstText(clerkText))) bump('risk', w.risk?.privacyAssure || -12, '隐私承诺降低风险疑虑');
+  if (/全国通用|全国连锁|上市公司/.test(firstText(clerkText))) bump('risk', w.risk?.nationwideAssure || -7, '品牌与通用性降低风险疑虑');
+
+  INTENT_TYPES.forEach((intent) => {
+    const hitCount = (keywordHits[intent] || []).length;
+    if (hitCount > 0) {
+      bump(intent, -Math.min(14, hitCount * 3), `${INTENT_LABEL[intent]}关键词命中，疑虑下降`);
+    }
+  });
+
+  const lastIntent = Array.isArray(prevState.intentHistory) ? prevState.intentHistory[prevState.intentHistory.length - 1] : '';
+  if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
+    bump('time', 8, '顾客已想结束，未给新信息时时间焦虑上升');
+    bump('value', 4, '未给新增价值时价值疑虑回升');
+  }
+
+  const nextScores = {
+    value: clamp(prevScores.value + delta.value, 0, 100),
+    time: clamp(prevScores.time + delta.time, 0, 100),
+    risk: clamp(prevScores.risk + delta.risk, 0, 100),
+  };
+  const mainIntent = pickMainIntent(nextScores);
+  const intentResolved = resolveIntentFlags(nextScores);
+  const acceptanceReady = isIntentAccepted(nextScores);
+
+  return {
+    previousScores: prevScores,
+    nextScores,
+    delta,
+    keywordHits,
+    mainIntent,
+    intentResolved,
+    acceptanceReady,
+    notes,
+  };
+}
+
+function applyStateRules(prevStateInput, signal, slots, personaInput = {}, context = {}) {
   const persona = resolvePersona(personaInput);
   const prevState = normalizeCustomerState(prevStateInput, persona);
   const next = { ...prevState, turn: prevState.turn + 1 };
@@ -473,7 +798,27 @@ function applyStateRules(prevStateInput, signal, slots, personaInput = {}) {
   else if (slots.processExplained || signal.triesClose) next.stage = 'closing';
 
   if (next.interest >= 78 && next.trust >= 72 && next.objectionLevel <= 35 && (slots.processExplained || signal.triesClose)) {
+    next.stage = 'closing';
+  }
+
+  const intentOutcome = evaluateIntentEngine({
+    prevState,
+    signal,
+    slots,
+    persona,
+    clerkText: context.clerkText || '',
+  });
+
+  next.intentScores = intentOutcome.nextScores;
+  next.mainIntent = intentOutcome.mainIntent;
+  next.intentResolved = intentOutcome.intentResolved;
+  next.acceptanceReady = intentOutcome.acceptanceReady;
+  next.intentDelta = intentOutcome.delta;
+  next.intentKeywordHits = intentOutcome.keywordHits;
+
+  if (next.acceptanceReady) {
     next.stage = 'done';
+    reasons.push('三类顾客意图疑虑均降到阈值以下');
   }
 
   next.memberStatus = slots.memberStatus;
@@ -493,7 +838,7 @@ function applyStateRules(prevStateInput, signal, slots, personaInput = {}) {
   };
   next.emotion = inferEmotion(next);
 
-  return { nextState: next, delta, reasons };
+  return { nextState: next, delta, reasons, intentOutcome };
 }
 
 function mapMissingFactToIntent(missing = []) {
@@ -519,6 +864,9 @@ function buildDecisionMetaByIntent(intent, prev = {}) {
     ask_scope: { action: 'question', keyConcern: '优惠规则细节', emotion: 'curious' },
     ask_expiry: { action: 'question', keyConcern: '优惠规则细节', emotion: 'curious' },
     ask_process: { action: 'question', keyConcern: CONCERN_LABEL.convenience, emotion: 'interested' },
+    interrupt_time: { action: 'question', keyConcern: CONCERN_LABEL.time, emotion: 'annoyed' },
+    interrupt_risk: { action: 'question', keyConcern: CONCERN_LABEL.risk, emotion: 'annoyed' },
+    topic_switch: { action: 'question', keyConcern: '顾客临时换话题', emotion: 'curious' },
     raise_objection: { action: 'question', keyConcern: CONCERN_LABEL.risk, emotion: 'annoyed' },
     delay_decision: { action: 'hesitate', keyConcern: CONCERN_LABEL.risk, emotion: 'neutral' },
     ready_join: { action: 'accept', keyConcern: '办理效率', emotion: 'happy' },
@@ -556,6 +904,8 @@ function avoidRepeatIntent(decision, state, slots) {
     'ask_scope',
     'ask_expiry',
     'ask_process',
+    'interrupt_time',
+    'interrupt_risk',
     'raise_objection',
   ];
   const shouldAvoid = loopSensitiveIntents.includes(decision.intent) && recent.includes(decision.intent);
@@ -568,7 +918,9 @@ function avoidRepeatIntent(decision, state, slots) {
     ask_effective_time: ['ask_scope', 'ask_process', 'raise_objection', 'delay_decision'],
     ask_scope: ['ask_process', 'raise_objection', 'delay_decision'],
     ask_expiry: ['ask_scope', 'ask_process', 'delay_decision'],
-    ask_process: ['ready_join', 'delay_decision', 'want_leave'],
+    ask_process: ['delay_decision', 'share_needs', 'want_leave'],
+    interrupt_time: ['ask_process', 'delay_decision', 'want_leave'],
+    interrupt_risk: ['raise_objection', 'ask_scope', 'delay_decision'],
     raise_objection: ['delay_decision', 'ask_process', 'want_leave'],
   }[decision.intent] || [];
 
@@ -594,11 +946,21 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
     || signal.mentionsProcess
   );
 
+  const intentScores = normalizeIntentScores(state.intentScores || {}, persona);
+  const mainIntent = INTENT_TYPES.includes(state.mainIntent) ? state.mainIntent : pickMainIntent(intentScores);
+  const acceptanceReady = state.acceptanceReady || isIntentAccepted(intentScores);
+
   let decision;
-  if (state.patience < 22 || state.annoyance > 78) {
+  if (acceptanceReady) {
+    decision = buildDecision('R00', 'ready_join', 'accept', '办理效率', '价值/时间/风险三类意图均已被解决。', 'happy');
+  } else if (state.patience < 22 || state.annoyance > 78) {
     decision = buildDecision('R01', 'want_leave', 'reject', '时间成本', '耐心过低，倾向先结束对话。', 'annoyed');
   } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
     decision = buildDecision('R01B', 'want_leave', 'reject', '先完成结账', '顾客已明确先结账，当前未出现新增价值信息。', 'neutral');
+  } else if (signal.longWinded && slots.timePressure) {
+    decision = buildDecision('R01C', 'interrupt_time', 'question', CONCERN_LABEL.time, '顾客打断并要求更高沟通效率。', 'annoyed');
+  } else if (signal.hardSell || slots.annoyanceTriggered) {
+    decision = buildDecision('R08', 'interrupt_risk', 'question', CONCERN_LABEL.risk, '顾客对推销感敏感，先进入防御模式。', 'annoyed');
   } else if (slots.memberAsked && !slots.memberStatusKnown) {
     const isHasCard = (persona.memberStatusDefault || 'no_card') === 'has_card';
     decision = buildDecision(
@@ -609,29 +971,46 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
       '店员问会员时先明确有无会员卡，避免跳题。',
       'neutral'
     );
-  } else if (slots.memberStatus === 'no_card' && slots.memberAsked && !slots.benefitIntroduced) {
-    decision = buildDecision('R03', 'ask_join_benefit', 'question', CONCERN_LABEL.benefit, '尚未讲权益价值，先问办卡意义。', 'curious');
-  } else if (slots.repeatedMemberAskNoValue) {
-    decision = buildDecision('R04', 'raise_objection', 'question', CONCERN_LABEL.risk, '重复追问会员但缺少价值说明，顾客进入防御。', 'annoyed');
-  } else if (slots.benefitIntroduced && slots.missingRuleFacts.length > 0) {
-    const intent = mapMissingFactToIntent(slots.missingRuleFacts);
-    decision = buildDecision('R05', intent, 'question', '优惠规则细节', '听到优惠后优先补齐关键规则。', 'curious');
-  } else if (slots.benefitIntroduced && slots.missingRuleFacts.length === 0 && !slots.processExplained && state.interest >= 55) {
-    decision = buildDecision('R06', 'ask_process', 'question', CONCERN_LABEL.convenience, '规则清楚后自然追问办理步骤。', 'interested');
-  } else if ((slots.processExplained || signal.triesClose) && state.trust >= 60 && state.interest >= 62 && state.objectionLevel <= 48) {
-    decision = buildDecision('R07', 'ready_join', 'accept', '办理效率', '流程明确且信任充足，进入成交。', 'happy');
-  } else if (slots.annoyanceTriggered || signal.hardSell || state.objectionLevel >= 66) {
-    decision = buildDecision('R08', 'raise_objection', 'question', CONCERN_LABEL.risk, '强推或压迫语气触发顾客防御。', 'annoyed');
-  } else if (!slots.valueQuantified || state.interest < 45) {
-    decision = buildDecision('R09', 'ask_benefit_amount', 'question', CONCERN_LABEL.benefit, '顾客还没听到本单可得收益。', 'neutral');
-  } else if (signal.asksNeed && state.trust >= 56) {
-    decision = buildDecision('R10', 'share_needs', 'continue_talk', '结合自身购药习惯', '顾客愿意补充场景信息。', 'interested');
-  } else if (state.stage === 'done') {
-    decision = buildDecision('R07', 'ready_join', 'accept', '办理效率', '已满足办理条件，进入确认。', 'happy');
-  } else if (signal.triesClose && state.trust < 55) {
-    decision = buildDecision('R09', 'delay_decision', 'hesitate', CONCERN_LABEL.risk, '收口偏早，顾客还想再确认。', 'neutral');
   } else {
-    decision = buildDecision('R09', 'ask_benefit_amount', 'question', CONCERN_LABEL.benefit, '默认回到价值确认，避免跑题。', state.emotion || 'neutral');
+    if (mainIntent === 'value') {
+      if (!slots.benefitIntroduced) {
+        decision = buildDecision('R03', 'ask_join_benefit', 'question', CONCERN_LABEL.benefit, '主意图=价值，优先确认办卡是否真的划算。', 'curious');
+      } else if (!slots.ruleFacts.threshold) {
+        decision = buildDecision('R05', 'ask_coupon_rule', 'question', '优惠规则细节', '主意图=价值，先确认优惠门槛。', 'curious');
+      } else if (intentScores.value >= 48) {
+        decision = buildDecision('R09', 'ask_benefit_amount', 'question', CONCERN_LABEL.benefit, '主意图=价值，仍需要量化本单收益。', 'neutral');
+      } else if (!slots.processExplained) {
+        decision = buildDecision('R06', 'ask_process', 'question', CONCERN_LABEL.convenience, '价值已基本认可，转向办理便利性。', 'interested');
+      } else {
+        decision = buildDecision('R07V', 'delay_decision', 'hesitate', '办理效率', '价值疑虑已低，但仍需同时确认时间与风险顾虑。', 'neutral');
+      }
+    } else if (mainIntent === 'time') {
+      if (slots.timePressure && state.patience < 50 && !hasNewBusinessInfo) {
+        decision = buildDecision('R11', 'want_leave', 'reject', CONCERN_LABEL.time, '主意图=时间，顾客倾向先结账离场。', 'annoyed');
+      } else if (!slots.processExplained) {
+        decision = buildDecision('R06', 'ask_process', 'question', CONCERN_LABEL.time, '主意图=时间，优先问流程快不快。', 'interested');
+      } else if (signal.longWinded) {
+        decision = buildDecision('R11B', 'interrupt_time', 'question', CONCERN_LABEL.time, '主意图=时间，顾客打断要求说重点。', 'annoyed');
+      } else if (intentScores.time <= 38 && !acceptanceReady) {
+        decision = buildDecision('R11D', 'delay_decision', 'hesitate', CONCERN_LABEL.time, '时间疑虑已降低，但仍需确认价值与风险再决定。', 'neutral');
+      } else {
+        decision = buildDecision('R11C', 'delay_decision', 'hesitate', CONCERN_LABEL.time, '主意图=时间，仍想先快速结账。', 'neutral');
+      }
+    } else {
+      if (!slots.ruleFacts.effectiveTime) {
+        decision = buildDecision('R12', 'ask_effective_time', 'question', CONCERN_LABEL.risk, '主意图=风险，先确认生效时间。', 'curious');
+      } else if (!slots.ruleFacts.scope) {
+        decision = buildDecision('R12B', 'ask_scope', 'question', CONCERN_LABEL.risk, '主意图=风险，继续确认适用范围。', 'curious');
+      } else if (!slots.ruleFacts.expiry) {
+        decision = buildDecision('R12C', 'ask_expiry', 'question', CONCERN_LABEL.risk, '主意图=风险，确认是否容易过期浪费。', 'curious');
+      } else if (signal.hardSell || state.objectionLevel > 62) {
+        decision = buildDecision('R08', 'raise_objection', 'question', CONCERN_LABEL.risk, '主意图=风险，防御心理上升。', 'annoyed');
+      } else if (intentScores.risk <= 36 && slots.processExplained && !acceptanceReady) {
+        decision = buildDecision('R12D', 'delay_decision', 'hesitate', CONCERN_LABEL.risk, '风险疑虑已降低，但仍需确认其他意图是否解决。', 'neutral');
+      } else {
+        decision = buildDecision('R08B', 'raise_objection', 'question', CONCERN_LABEL.risk, '主意图=风险，仍需更多安心信息。', 'curious');
+      }
+    }
   }
 
   return avoidRepeatIntent(decision, state, slots);
@@ -642,10 +1021,11 @@ function getLastCustomerUtterance(history = []) {
   return last ? firstText(last.text) : '';
 }
 
-function pickReplyVariant(options, lastReply, seed = 0) {
+function pickReplyVariant(options, recentReplies = [], seed = 0) {
   const list = (options || []).map((t) => firstText(t)).filter(Boolean);
   if (!list.length) return '你再说详细一点。';
-  const pool = list.filter((item) => item !== firstText(lastReply));
+  const recent = new Set((recentReplies || []).map((x) => firstText(x)).filter(Boolean));
+  const pool = list.filter((item) => !recent.has(item));
   const target = pool.length ? pool : list;
   return target[Math.abs(toInt(seed, 0)) % target.length];
 }
@@ -684,6 +1064,9 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
     ask_expiry: ['这券多久会过期？', '一个月后就不能用了是吗？', '有效期从哪天开始算？'],
     ask_scope: ['全场都能用吗？', '是不是所有商品都能抵扣？', '有没有不能用券的品类？'],
     ask_process: ['那具体怎么操作办卡？', '是扫码加微信就行吗？', '办卡流程几步能完成？'],
+    interrupt_time: ['您说重点，我有点赶时间。', '能简短点吗？我先结账。', '先说一句最关键的优惠。'],
+    interrupt_risk: ['您别急着推，我先确认清楚。', '我担心有隐形条件，先说规则。', '先别催办卡，我想听明白。'],
+    topic_switch: ['先不聊办卡，我这药怎么结账？', '我先确认这单金额，再说会员。'],
     raise_objection: ['听着像推销，我有点担心。', '会不会有隐藏条件？', '别急着让我办，先说清楚。'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通。', '那就办吧，你带我操作。'],
@@ -699,14 +1082,18 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
 }
 
 function buildTemplateCustomerReply(decision, context = {}) {
-  const lastReply = getLastCustomerUtterance(context.history || []);
+  const recentReplies = (context.history || [])
+    .filter((m) => m?.who === 'customer' && m?.text)
+    .map((m) => firstText(m.text))
+    .filter(Boolean)
+    .slice(-4);
   const seed = (context.state?.turn || 0) + (context.history?.length || 0);
   const persona = resolvePersona(context.persona || context.personaId || {});
   const slots = context.slots || { missingRuleFacts: [] };
 
   const options = buildReplyOptionsByPersona(decision.intent, persona, slots);
   return {
-    reply: pickReplyVariant(options, lastReply, seed),
+    reply: pickReplyVariant(options, recentReplies, seed),
     emotion: EMOTION_LIST.includes(decision.emotion) ? decision.emotion : 'neutral',
     action: decision.action || 'question',
   };
@@ -754,6 +1141,18 @@ function buildCoachHint(decision, state, slots) {
       customerMindset: '顾客对价值基本认可，卡在办理便捷性。',
       clerkTip: '下一句建议：按“扫码-加企微-点卡片授权”三步说完。',
     },
+    interrupt_time: {
+      customerMindset: '顾客打断你了，核心诉求是“快、短、可执行”。',
+      clerkTip: '下一句建议：用一句话先讲“本单省多少”，再给最短流程。',
+    },
+    interrupt_risk: {
+      customerMindset: '顾客出现防御打断，核心诉求是“先安心再决定”。',
+      clerkTip: '下一句建议：先降压共情，再讲隐私与规则边界。',
+    },
+    topic_switch: {
+      customerMindset: '顾客临时切到结账主线，说明办卡窗口在收缩。',
+      clerkTip: '下一句建议：先完成收银，再留一句后续办理入口。',
+    },
     raise_objection: {
       customerMindset: '顾客防御升高，担心被强推。',
       clerkTip: '下一句建议：先共情，再给事实，不要连续催办卡。',
@@ -777,16 +1176,19 @@ function buildCoachHint(decision, state, slots) {
   };
 
   const base = map[decision.intent] || map.ask_benefit_amount;
+  const mainIntentLabel = INTENT_LABEL[state.mainIntent] || '价值意图';
   if (slots.annoyanceTriggered || state.annoyance > 70) {
     return {
       customerMindset: '顾客反感在上升，继续硬推会直接流失。',
       clerkTip: '下一句建议：先道歉降压，再用一句事实恢复信任。',
       keyConcern: concernToLabel('risk'),
+      mainIntent: mainIntentLabel,
     };
   }
   return {
     ...base,
     keyConcern: concernToLabel(state.currentConcern || decision.keyConcern),
+    mainIntent: mainIntentLabel,
   };
 }
 
@@ -847,6 +1249,8 @@ function buildCustomerExpressionPrompt({
 - objectionLevel: ${state.objectionLevel}
 - stage: ${state.stage}
 - emotion: ${state.emotion}
+- mainIntent: ${INTENT_LABEL[state.mainIntent] || state.mainIntent}
+- intentScores: value=${state?.intentScores?.value}, time=${state?.intentScores?.time}, risk=${state?.intentScores?.risk}
 
 本轮店员话术：${clerkText}
 
@@ -866,7 +1270,8 @@ ${historyText || '（无）'}
 1) 不要重复上一轮顾客原话。
 2) 若当前 intent 是“回答会员状态”，禁止跳去追问优惠规则。
 3) 若槽位中 benefitIntroduced=false，禁止问“券怎么用/还有什么优惠”。
-4) 不要编造新权益，不要跳出顾客身份。
+4) 顾客发言必须由“主意图 + 槽位限制”共同决定，不可机械按槽位顺序提问。
+5) 不要编造新权益，不要跳出顾客身份。
 
 请严格输出 JSON（不要输出其他内容）：
 {
@@ -890,6 +1295,9 @@ function isReplyAlignedWithIntent(replyInput, intent) {
     ask_expiry: /(多久|有效期|过期|一个月)/,
     ask_scope: /(全场|都能|范围|哪些)/,
     ask_process: /(怎么|流程|扫码|操作|授权)/,
+    interrupt_time: /(快点|简短|重点|先结账|赶时间)/,
+    interrupt_risk: /(别急|先确认|隐形条件|先说清楚|别催)/,
+    topic_switch: /(先结账|金额|收银|先不聊办卡)/,
     raise_objection: /(担心|隐藏|别急|推销|靠谱不)/,
     delay_decision: /(再想想|先结账|先不急|改天)/,
     ready_join: /(帮我办|现在办|开通|行，那办)/,
@@ -907,11 +1315,74 @@ function pushIntentHistory(stateInput, intent) {
   return state;
 }
 
+function evaluateIntentResolution(conversation = [], personaInput = {}) {
+  const persona = resolvePersona(personaInput);
+  let state = buildInitialCustomerState(persona);
+  const startScores = { ...(state.intentScores || initIntentScores(persona)) };
+  const history = [];
+  const mainIntentFlow = [];
+
+  (conversation || []).forEach((msg) => {
+    const who = msg?.who;
+    const text = firstText(msg?.text);
+    if (!text || (who !== 'clerk' && who !== 'customer')) return;
+
+    if (who === 'clerk') {
+      const signal = analyzeClerkBehavior(text);
+      const slots = deriveScenarioSlots(history, text, signal, state, persona);
+      const outcome = applyStateRules(state, signal, slots, persona, { clerkText: text, history });
+      state = outcome.nextState;
+      mainIntentFlow.push({
+        turn: state.turn,
+        main_intent: state.mainIntent,
+        scores: { ...state.intentScores },
+      });
+    }
+    history.push({ who, text });
+  });
+
+  const endScores = { ...(state.intentScores || initIntentScores(persona)) };
+  const thresholds = INTENT_ENGINE_CONFIG.acceptThresholds;
+  const resolved = resolveIntentFlags(endScores, thresholds);
+  const details = INTENT_TYPES.reduce((acc, intent) => {
+    acc[intent] = {
+      start: toInt(startScores[intent], 0),
+      end: toInt(endScores[intent], 0),
+      threshold: toInt(thresholds[intent], 35),
+      solved: !!resolved[intent],
+      delta: toInt(startScores[intent], 0) - toInt(endScores[intent], 0),
+    };
+    return acc;
+  }, {});
+  const solvedCount = INTENT_TYPES.filter((intent) => resolved[intent]).length;
+
+  return {
+    summary: `已解决${solvedCount}/3类顾客意图`,
+    start_scores: startScores,
+    end_scores: endScores,
+    resolved,
+    details,
+    solved_count: solvedCount,
+    all_resolved: solvedCount === INTENT_TYPES.length,
+    main_intent_flow: mainIntentFlow.slice(-10),
+  };
+}
+
 function buildPlaybook() {
   return {
     membershipFacts: MEMBERSHIP_FACTS,
     slotTable: SLOT_TABLE,
     decisionRules: DECISION_RULE_TABLE,
+    intentEngine: {
+      intents: INTENT_TYPES.map((k) => ({ key: k, label: INTENT_LABEL[k] })),
+      acceptThresholds: INTENT_ENGINE_CONFIG.acceptThresholds,
+      keywordMap: AUTO_INTENT_KEYWORDS,
+      keywordSourceStats: {
+        surveySnippetCount: STORE_MANAGER_SURVEY_SNIPPETS.length,
+        generatedKeywordCount: INTENT_TYPES.reduce((acc, k) => acc + (AUTO_INTENT_KEYWORDS[k] || []).length, 0),
+      },
+    },
+    surveyDataSample: STORE_MANAGER_SURVEY_SNIPPETS.slice(0, 24),
     annoyanceTriggers: ANNOYANCE_TRIGGER_TERMS.map((re) => re.source.replace(/\\/g, '')),
     personas: PERSONA_IDS.map((id) => {
       const p = CUSTOMER_PERSONAS[id];
@@ -932,6 +1403,10 @@ module.exports = {
   SLOT_TABLE,
   DECISION_RULE_TABLE,
   ANNOYANCE_TRIGGER_TERMS,
+  INTENT_ENGINE_CONFIG,
+  INTENT_TYPES,
+  INTENT_LABEL,
+  AUTO_INTENT_KEYWORDS,
   CUSTOMER_PERSONAS,
   resolvePersona,
   buildInitialCustomerState,
@@ -945,5 +1420,6 @@ module.exports = {
   buildCustomerExpressionPrompt,
   isReplyAlignedWithIntent,
   pushIntentHistory,
+  evaluateIntentResolution,
   buildPlaybook,
 };
