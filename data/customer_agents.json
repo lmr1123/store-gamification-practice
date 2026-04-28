@@ -1,0 +1,614 @@
+{
+  "version": "1.0.0",
+  "scenario_id": "POS_MEMBER_SIGNUP",
+  "scenario_name": "POS收银台新会员办卡对练",
+  "source_file": "Pasted text(7).txt",
+  "generated_basis": "store_survey_rows_104",
+  "design_principle": "customer_reply = primary_intent + slot_constraints + customer_state",
+  "intent_engine": {
+    "intents": [
+      "value",
+      "time",
+      "risk"
+    ],
+    "thresholds": {
+      "high": 70,
+      "mid": 40,
+      "resolved": 30,
+      "accept_all_below": 35
+    },
+    "priority_rules": [
+      {
+        "if": "annoy_triggered=true",
+        "then": "defensive_reject_or_pause",
+        "priority": 100
+      },
+      {
+        "if": "risk>=70",
+        "then": "risk_objection",
+        "priority": 90
+      },
+      {
+        "if": "time>=70",
+        "then": "time_objection",
+        "priority": 80
+      },
+      {
+        "if": "value>=70",
+        "then": "value_objection",
+        "priority": 70
+      },
+      {
+        "if": "value<35 AND time<35 AND risk<35 AND trust>=65 AND resistance<=35",
+        "then": "accept_step",
+        "priority": 60
+      },
+      {
+        "else": "ask_next_allowed_unresolved_slot",
+        "priority": 10
+      }
+    ],
+    "keyword_map": {
+      "risk": [
+        "骚扰",
+        "电话",
+        "短信",
+        "信息",
+        "隐私",
+        "泄露",
+        "透露",
+        "手机号",
+        "验证码",
+        "微信",
+        "企微",
+        "扫码",
+        "打扰"
+      ],
+      "time": [
+        "赶时间",
+        "没时间",
+        "着急",
+        "麻烦",
+        "快点",
+        "步骤",
+        "一分钟",
+        "10秒",
+        "下次再说"
+      ],
+      "value": [
+        "优惠",
+        "省",
+        "便宜",
+        "力度",
+        "几块",
+        "几毛",
+        "没必要",
+        "没用",
+        "划算",
+        "会员价",
+        "积分",
+        "券"
+      ]
+    },
+    "staff_move_effects": [
+      {
+        "move": "specific_saving_amount",
+        "examples": [
+          "今天这单能省5元",
+          "办好本单立减"
+        ],
+        "intent_delta": {
+          "value": -30
+        },
+        "state_delta": {
+          "trust": 8,
+          "resistance": -8
+        }
+      },
+      {
+        "move": "fast_process",
+        "examples": [
+          "10秒办好",
+          "一分钟内办好",
+          "不耽误您结账"
+        ],
+        "intent_delta": {
+          "time": -35
+        },
+        "state_delta": {
+          "trust": 6,
+          "resistance": -10
+        }
+      },
+      {
+        "move": "privacy_boundary",
+        "examples": [
+          "仅用于会员权益和电子券",
+          "可以选择不接收活动信息"
+        ],
+        "intent_delta": {
+          "risk": -40
+        },
+        "state_delta": {
+          "trust": 12,
+          "resistance": -15
+        }
+      },
+      {
+        "move": "national_availability",
+        "examples": [
+          "全国门店通用",
+          "外地也能用"
+        ],
+        "intent_delta": {
+          "value": -15
+        },
+        "state_delta": {
+          "trust": 5,
+          "resistance": -5
+        }
+      },
+      {
+        "move": "hard_sell",
+        "examples": [
+          "必须办",
+          "不办就亏",
+          "赶紧办"
+        ],
+        "intent_delta": {
+          "time": 20,
+          "risk": 20
+        },
+        "state_delta": {
+          "trust": -20,
+          "resistance": 25
+        },
+        "set": {
+          "annoy_triggered": true
+        }
+      }
+    ]
+  },
+  "slot_constraints": {
+    "member_asked=false": "only_allow:['clarify_member_question']",
+    "member_status=unknown": "only_allow:['answer_member_status_or_clarify']",
+    "benefit_bundle_intro=false": "block:['ask_coupon_threshold','ask_expiry','ask_scope']",
+    "annoy_triggered=true": "only_allow:['defensive_reject_or_pause']",
+    "question_repeated_same_type>=2": "force_rotate_to_next_allowed_intent_or_close"
+  },
+  "agents": [
+    {
+      "agent_id": "pos_member_value_sensitive_001",
+      "agent_name": "价值敏感型：觉得优惠小/没必要",
+      "scenario_id": "POS_MEMBER_SIGNUP",
+      "source": "auto_generated_from_store_survey",
+      "customer_profile": {
+        "typical_traits": [
+          "理性消费",
+          "只看当下是否划算",
+          "对长期权益感知弱"
+        ],
+        "initial_customer_lines": [
+          "优惠力度太小了吧。",
+          "就省几块钱，没必要办。",
+          "办会员到底能省多少？"
+        ]
+      },
+      "initial_intents": {
+        "value": 85,
+        "time": 35,
+        "risk": 30
+      },
+      "initial_state": {
+        "trust": 45,
+        "resistance": 65,
+        "acceptance_stage": "explore"
+      },
+      "primary_objections": [
+        "优惠力度小",
+        "不知道本单实际省多少",
+        "长期权益感知弱"
+      ],
+      "effective_staff_moves": [
+        "直接算本单优惠金额",
+        "说明新会员券具体金额与门槛",
+        "把会员价、积分、会员日权益讲成可理解的省钱账"
+      ],
+      "bad_staff_moves": [
+        "只说有优惠",
+        "只说积分",
+        "转推至尊卡但没有先解决当下价值感"
+      ],
+      "next_reply_policy": {
+        "when_value_high": [
+          "这次到底能省多少？",
+          "每张券怎么用？",
+          "是不是只有这次有用？"
+        ],
+        "when_value_resolved": [
+          "那如果今天能省，倒是可以看一下。"
+        ]
+      }
+    },
+    {
+      "agent_id": "pos_member_risk_privacy_001",
+      "agent_name": "隐私风险型：怕手机号/企微/电话骚扰",
+      "scenario_id": "POS_MEMBER_SIGNUP",
+      "source": "auto_generated_from_store_survey",
+      "customer_profile": {
+        "typical_traits": [
+          "谨慎",
+          "不喜欢被营销打扰",
+          "对手机号授权敏感"
+        ],
+        "initial_customer_lines": [
+          "我不想留手机号。",
+          "会不会一直给我打电话？",
+          "加企业微信会不会经常发消息？"
+        ]
+      },
+      "initial_intents": {
+        "value": 45,
+        "time": 40,
+        "risk": 90
+      },
+      "initial_state": {
+        "trust": 35,
+        "resistance": 80,
+        "acceptance_stage": "hesitate"
+      },
+      "primary_objections": [
+        "怕电话骚扰",
+        "怕信息泄露",
+        "不想加企业微信或扫码"
+      ],
+      "effective_staff_moves": [
+        "先表示理解",
+        "说明手机号仅用于会员权益/电子券/办卡授权",
+        "说明可关闭或减少营销触达",
+        "避免绝对化承诺"
+      ],
+      "bad_staff_moves": [
+        "说绝对不会发任何信息",
+        "说随便填一个手机号",
+        "不解释用途直接要求扫码/授权"
+      ],
+      "next_reply_policy": {
+        "when_risk_high": [
+          "那你们会不会老给我发短信？",
+          "我的手机号会不会泄露？",
+          "加微信是不是以后一直推活动？"
+        ],
+        "when_risk_resolved": [
+          "如果只是办卡用，不会乱打扰，那可以了解一下。"
+        ]
+      }
+    },
+    {
+      "agent_id": "pos_member_time_pressure_001",
+      "agent_name": "时间紧张型：赶时间/怕麻烦",
+      "scenario_id": "POS_MEMBER_SIGNUP",
+      "source": "auto_generated_from_store_survey",
+      "customer_profile": {
+        "typical_traits": [
+          "目标明确",
+          "结账后想马上走",
+          "不愿听长介绍"
+        ],
+        "initial_customer_lines": [
+          "我赶时间，不办了。",
+          "这个办起来麻烦吗？",
+          "下次再说吧。"
+        ]
+      },
+      "initial_intents": {
+        "value": 55,
+        "time": 90,
+        "risk": 40
+      },
+      "initial_state": {
+        "trust": 45,
+        "resistance": 75,
+        "acceptance_stage": "hesitate"
+      },
+      "primary_objections": [
+        "怕流程久",
+        "不想扫码加好友",
+        "不想听长话术"
+      ],
+      "effective_staff_moves": [
+        "一句话讲清本单价值",
+        "一句话讲清流程时间",
+        "承诺不耽误结账，超过时间就先结账"
+      ],
+      "bad_staff_moves": [
+        "长篇介绍所有权益",
+        "连续追问强推",
+        "在顾客赶时间时讲复杂券规则"
+      ],
+      "next_reply_policy": {
+        "when_time_high": [
+          "要多久？我赶时间。",
+          "是不是还要扫码加微信？",
+          "太麻烦就算了。"
+        ],
+        "when_time_resolved": [
+          "如果很快，那你帮我看一下。"
+        ]
+      }
+    },
+    {
+      "agent_id": "pos_member_low_frequency_001",
+      "agent_name": "低频/路过型：不常来/不固定门店",
+      "scenario_id": "POS_MEMBER_SIGNUP",
+      "source": "auto_generated_from_store_survey",
+      "customer_profile": {
+        "typical_traits": [
+          "偶发购买",
+          "认为未来用不上",
+          "对全国通用感知弱"
+        ],
+        "initial_customer_lines": [
+          "我不常来，办卡没用。",
+          "我不是住这附近的。",
+          "我很少买药。"
+        ]
+      },
+      "initial_intents": {
+        "value": 75,
+        "time": 45,
+        "risk": 35
+      },
+      "initial_state": {
+        "trust": 50,
+        "resistance": 65,
+        "acceptance_stage": "explore"
+      },
+      "primary_objections": [
+        "未来用不上",
+        "不是本地常客",
+        "少买药"
+      ],
+      "effective_staff_moves": [
+        "说明全国通用",
+        "强调本单即可省钱",
+        "说明偶尔买一次也能享受会员价/积分"
+      ],
+      "bad_staff_moves": [
+        "只讲长期权益",
+        "暗示顾客以后会经常买药",
+        "不结合本次消费"
+      ],
+      "next_reply_policy": {
+        "when_value_high": [
+          "我又不常来，办了有什么用？",
+          "是不是只有这家店能用？"
+        ],
+        "when_value_resolved": [
+          "全国都能用的话还可以。"
+        ]
+      }
+    },
+    {
+      "agent_id": "pos_member_process_doubt_001",
+      "agent_name": "流程疑虑型：不想扫码/验证码/加企微",
+      "scenario_id": "POS_MEMBER_SIGNUP",
+      "source": "auto_generated_from_store_survey",
+      "customer_profile": {
+        "typical_traits": [
+          "怕操作麻烦",
+          "担心验证码和授权",
+          "对小程序/企微流程不清楚"
+        ],
+        "initial_customer_lines": [
+          "还要扫码吗？",
+          "为什么要验证码？",
+          "要加微信吗？"
+        ]
+      },
+      "initial_intents": {
+        "value": 50,
+        "time": 70,
+        "risk": 70
+      },
+      "initial_state": {
+        "trust": 40,
+        "resistance": 70,
+        "acceptance_stage": "verify"
+      },
+      "primary_objections": [
+        "流程不清楚",
+        "担心验证码用途",
+        "担心加企微后被打扰"
+      ],
+      "effective_staff_moves": [
+        "说明扫码/授权的具体步骤",
+        "说明预计耗时",
+        "说明验证码用途与边界"
+      ],
+      "bad_staff_moves": [
+        "先加了再说",
+        "不解释用途直接让顾客操作",
+        "说这个很简单别问了"
+      ],
+      "next_reply_policy": {
+        "when_time_or_risk_high": [
+          "这个验证码是干嘛的？",
+          "要操作几步？",
+          "加了以后会不会一直发消息？"
+        ],
+        "when_resolved": [
+          "那你指导我扫一下。"
+        ]
+      }
+    },
+    {
+      "agent_id": "pos_member_strong_reject_001",
+      "agent_name": "强拒绝型：反感推销/重复拒绝",
+      "scenario_id": "POS_MEMBER_SIGNUP",
+      "source": "auto_generated_from_store_survey",
+      "customer_profile": {
+        "typical_traits": [
+          "防御感强",
+          "已经多次拒绝",
+          "不希望继续被营销"
+        ],
+        "initial_customer_lines": [
+          "不用了，直接结账。",
+          "别说了，我不办。",
+          "先不用了。"
+        ]
+      },
+      "initial_intents": {
+        "value": 60,
+        "time": 80,
+        "risk": 65
+      },
+      "initial_state": {
+        "trust": 25,
+        "resistance": 95,
+        "acceptance_stage": "reject"
+      },
+      "primary_objections": [
+        "对推销反感",
+        "想尽快结账",
+        "不愿继续沟通"
+      ],
+      "effective_staff_moves": [
+        "礼貌停止邀约",
+        "保留后续机会",
+        "立即回到收银流程"
+      ],
+      "bad_staff_moves": [
+        "重复强推",
+        "说不办就亏",
+        "继续追问为什么不办"
+      ],
+      "next_reply_policy": {
+        "when_annoy_triggered": [
+          "先不用了，我先结账。",
+          "不用再介绍了。"
+        ],
+        "when_staff_respects": [
+          "好的，那先结账吧。"
+        ]
+      }
+    }
+  ],
+  "training_utterance_pools": {
+    "risk_examples_from_survey": [
+      "省几毛钱不办，办个会员老是推送的短信很烦，不想办",
+      "办卡会泄露个人信息，答您放心我单位会严格保密的不会对外泄露您的信息",
+      "微信绑定会员卡，太多垃圾信息，电话打扰",
+      "顾客不想泄露信息，不办会员卡，告诉顾客这就是一个小程序，不涉及到个人信息",
+      "顾客不想办会员卡，怕泄漏个人信息",
+      "顾客多数是说我不想办卡，我怕泄露信息，这时我会说您放心我们是上市公司，不会泄露任何人的信息您可以放心办理",
+      "不想加企业微信，怕短信和电话骚扰。答：没关系，您这边可以自己设置免打扰模式的",
+      "我们是连锁上市要洗不会随便的给你泄露隐私发无关的信息的这一点请您不要担心",
+      "顾客不愿意透露个人信息",
+      "嗯特别理解您办卡超简单只需要报个手机号一分钟就能注册好当场就能优惠完全不耽误您时间",
+      "不喜欢告诉个人信息",
+      "就是顾客不愿给验证码"
+    ],
+    "time_examples_from_survey": [
+      "有的顾客过来比较急很有目的性急着用药呢这样的顾客我就会给他说下一次有时间的话可以给你办一个会员卡扫个码就可以了",
+      "嗯特别理解您办卡超简单只需要报个手机号一分钟就能注册好当场就能优惠完全不耽误您时间",
+      "顾客会说不办赶时间着急。会立马回应1分钟都不到很简单扫一扫点两下步骤就完事。而且会送您15元优惠券这次立减5元",
+      "没有时间比较着急，那咱有时间可以来免费领取",
+      "顾客说没时间办卡，建议移动办卡",
+      "顾客兼麻烦。只需顾客提供电话号码，一分钟办好",
+      "不想办，嫌麻烦，怕打扰，然后告诉他，嗯，我们这个是一个线上一个小程序，没有不占地方，也没有什么打扰"
+    ],
+    "value_examples_from_survey": [
+      "有我们大参林会员卡不但有优惠，而且还有积分，会员日还有礼品",
+      "省几毛钱不办，办个会员老是推送的短信很烦，不想办",
+      "很多顾客都说不需要。对应话术:您好，成为大参林会员可以享受会员优惠和会员积分换礼，大参林全国连锁，会员卡是通用的，现在帮您办理一张吧！",
+      "这个会员最核心的好处就是帮你长期省钱，比如每次消费都能直接打折/返现，还有专属的满减券、生日福利，这些权益算下来，一年下来能省不少钱，而且现在办理还能额外送你［对应赠品/优惠券］，相当于免费体验",
+      "不需要，不固定一处买",
+      "办理会员会员商品打折，积分可以换购礼品",
+      "顾客询问优惠多少钱之后觉得几毛钱没必要——提出相对应的会员福利，比如每周的会员日有相对应的活动会员可享满减折扣，介绍产品的性价比",
+      "不需要",
+      "我不常来，办卡没用",
+      "顾客问会员卡有啥用啊？告知顾客有的药品会有会员价，您可以享受会员价，首次办理会员还会赠您优惠券，满10元就可以减5元，连续赠3个月",
+      "希望每位顾客都享受优惠",
+      "很多顾客都说比较少用 少买药 有些说没在这边，可回应立办享受会员价立减钱，还可以积分还有15元的优惠券，是每个月会送一张5元优惠券 全场红标 黄标买九块九可以用，多多少少都可以积分全国大森林的会员卡都是可以通用的总有一家在你的身边"
+    ],
+    "low_frequency_examples_from_survey": [
+      "不需要，不固定一处买",
+      "顾客说：不住在这边以后用不上       我们会回答说：你可以免费领一个我们的会员呀，大参林是上市公司全国都有而且会员是通用的哦",
+      "我不常来，办卡没用",
+      "很多顾客都说比较少用 少买药 有些说没在这边，可回应立办享受会员价立减钱，还可以积分还有15元的优惠券，是每个月会送一张5元优惠券 全场红标 黄标买九块九可以用，多多少少都可以积分全国大森林的会员卡都是可以通用的总有一家在你的身边",
+      "不用，很少买。回复：不要紧你买1次就优惠一次，有就多少优惠下，还可以积分，各个连锁都可以用",
+      "不跟药店打交道，不办卡； 吃五谷杂粮难免有感冒 消化等小问题，我们大参林到处都是，很方便大家的",
+      "不办了，没啥用，不在家，总在外地，大参全国都有门店，办理会员，只要是大参林，就可以享受优惠",
+      "问题：暂时不需要，又不用天天买药。回复：办理一下很方便的，可以享受这次的优惠",
+      "顾客说自己是路过这里买药不用办卡，对应话术：我们是全国连锁门店，享受同样的活动和积分，买药更优惠"
+    ],
+    "process_examples_from_survey": [
+      "很多顾客都说不需要。对应话术:您好，成为大参林会员可以享受会员优惠和会员积分换礼，大参林全国连锁，会员卡是通用的，现在帮您办理一张吧！",
+      "这个会员最核心的好处就是帮你长期省钱，比如每次消费都能直接打折/返现，还有专属的满减券、生日福利，这些权益算下来，一年下来能省不少钱，而且现在办理还能额外送你［对应赠品/优惠券］，相当于免费体验",
+      "办理会员会员商品打折，积分可以换购礼品",
+      "微信绑定会员卡，太多垃圾信息，电话打扰",
+      "顾客多数是说我不想办卡，我怕泄露信息，这时我会说您放心我们是上市公司，不会泄露任何人的信息您可以放心办理",
+      "不想加企业微信，怕短信和电话骚扰。答：没关系，您这边可以自己设置免打扰模式的",
+      "顾客问会员卡有啥用啊？告知顾客有的药品会有会员价，您可以享受会员价，首次办理会员还会赠您优惠券，满10元就可以减5元，连续赠3个月",
+      "嗯特别理解您办卡超简单只需要报个手机号一分钟就能注册好当场就能优惠完全不耽误您时间",
+      "办理会员卡可以进社区群，有什么不舒服的或在用药方面，可以在群里随时与我们沟通",
+      "就是顾客不愿给验证码",
+      "不想扫码",
+      "不办了，没啥用，不在家，总在外地，大参全国都有门店，办理会员，只要是大参林，就可以享受优惠"
+    ],
+    "coupon_detail_examples_from_survey": [
+      "这个会员最核心的好处就是帮你长期省钱，比如每次消费都能直接打折/返现，还有专属的满减券、生日福利，这些权益算下来，一年下来能省不少钱，而且现在办理还能额外送你［对应赠品/优惠券］，相当于免费体验",
+      "顾客询问优惠多少钱之后觉得几毛钱没必要——提出相对应的会员福利，比如每周的会员日有相对应的活动会员可享满减折扣，介绍产品的性价比",
+      "顾客问会员卡有啥用啊？告知顾客有的药品会有会员价，您可以享受会员价，首次办理会员还会赠您优惠券，满10元就可以减5元，连续赠3个月",
+      "很多顾客都说比较少用 少买药 有些说没在这边，可回应立办享受会员价立减钱，还可以积分还有15元的优惠券，是每个月会送一张5元优惠券 全场红标 黄标买九块九可以用，多多少少都可以积分全国大森林的会员卡都是可以通用的总有一家在你的身边",
+      "优惠力度太小不想办！非常理解您想要更大优惠的心情，咱们除了折扣，还有满减券，专属赠品，免费售后等附加权益。综合下来性价比很高，而且我可以帮你申请额外的小福利，你办卡就能享受到",
+      "顾客会说不办赶时间着急。会立马回应1分钟都不到很简单扫一扫点两下步骤就完事。而且会送您15元优惠券这次立减5元",
+      "有三张券 第一天用一张 第二天用一张 下个月用一张",
+      "券什么时候可以用？隔天就可以享受20-10，99-40",
+      "现在新办理的会员可以赠送您三张5元的代金券，满10元就可以用；会员日部分药品可以打88折"
+    ]
+  },
+  "scoring_rubric": {
+    "dimensions": [
+      {
+        "id": "value_resolution",
+        "name": "价值顾虑解决",
+        "weight": 30,
+        "success_signal": "顾客明确理解本单/长期能省什么"
+      },
+      {
+        "id": "time_resolution",
+        "name": "时间顾虑解决",
+        "weight": 20,
+        "success_signal": "顾客认可流程快、不耽误结账"
+      },
+      {
+        "id": "risk_resolution",
+        "name": "风险顾虑解决",
+        "weight": 25,
+        "success_signal": "顾客理解手机号/企微用途与触达边界"
+      },
+      {
+        "id": "natural_conversion",
+        "name": "自然转化推进",
+        "weight": 15,
+        "success_signal": "未强推，顾客进入扫码/授权动作"
+      },
+      {
+        "id": "polite_close",
+        "name": "礼貌收口",
+        "weight": 10,
+        "success_signal": "强拒绝时停止邀约并回到收银"
+      }
+    ],
+    "report_should_include": [
+      "本轮主意图",
+      "已解决意图",
+      "未解决意图",
+      "触发的风险规则",
+      "下一次改进话术"
+    ]
+  }
+}

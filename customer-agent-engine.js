@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 const MEMBERSHIP_FACTS = {
   cardName: '会员新人券',
   bundleName: '15元套券（3张）',
@@ -62,7 +65,7 @@ const DECISION_RULE_TABLE = [
   { id: 'R10', name: '窗口打开补充需求', when: '店员探需且顾客信任可对话', intent: 'share_needs' },
 ];
 
-const CUSTOMER_PERSONAS = {
+const BUILTIN_CUSTOMER_PERSONAS = {
   price_sensitive: {
     id: 'price_sensitive',
     label: '价格敏感型',
@@ -125,7 +128,8 @@ const CUSTOMER_PERSONAS = {
   },
 };
 
-const PERSONA_IDS = Object.keys(CUSTOMER_PERSONAS);
+let CUSTOMER_PERSONAS = { ...BUILTIN_CUSTOMER_PERSONAS };
+let PERSONA_IDS = Object.keys(CUSTOMER_PERSONAS);
 
 const EMOTION_LIST = ['neutral', 'curious', 'interested', 'happy', 'annoyed'];
 const STAGE_LIST = ['opening', 'probing', 'value', 'objection', 'closing', 'done'];
@@ -138,7 +142,7 @@ const INTENT_LABEL = {
   risk: '风险意图',
 };
 
-const INTENT_ENGINE_CONFIG = {
+const BASE_INTENT_ENGINE_CONFIG = {
   version: 'v2-intent-engine',
   acceptThresholds: { value: 32, time: 30, risk: 34 },
   initialScores: { value: 70, time: 56, risk: 54 },
@@ -284,7 +288,11 @@ function buildIntentKeywordMapFromSurvey(snippets = [], config = INTENT_ENGINE_C
   return result;
 }
 
-const AUTO_INTENT_KEYWORDS = buildIntentKeywordMapFromSurvey(STORE_MANAGER_SURVEY_SNIPPETS, INTENT_ENGINE_CONFIG);
+let INTENT_ENGINE_CONFIG = JSON.parse(JSON.stringify(BASE_INTENT_ENGINE_CONFIG));
+let AUTO_INTENT_KEYWORDS = buildIntentKeywordMapFromSurvey(STORE_MANAGER_SURVEY_SNIPPETS, INTENT_ENGINE_CONFIG);
+let EXTERNAL_AGENT_CONFIG_META = null;
+let EXTERNAL_SCORING_RUBRIC = null;
+let EXTERNAL_SLOT_CONSTRAINTS = null;
 
 function initIntentScores(persona = {}) {
   const base = { ...(INTENT_ENGINE_CONFIG.initialScores || { value: 70, time: 56, risk: 54 }) };
@@ -363,9 +371,171 @@ function pickRandom(arr = []) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function uniqStrings(list = []) {
+  const seen = new Set();
+  const out = [];
+  (list || []).forEach((item) => {
+    const text = firstText(item);
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    out.push(text);
+  });
+  return out;
+}
+
+function toConcernPriority(initialIntents = {}) {
+  const ranked = [
+    { key: 'value', score: toInt(initialIntents.value, 0), concern: 'benefit' },
+    { key: 'time', score: toInt(initialIntents.time, 0), concern: 'time' },
+    { key: 'risk', score: toInt(initialIntents.risk, 0), concern: 'risk' },
+  ].sort((a, b) => b.score - a.score);
+  const concerns = ranked.map((x) => x.concern);
+  if (!concerns.includes('convenience')) concerns.push('convenience');
+  return concerns;
+}
+
+function hashAccentColor(seed = '') {
+  const palette = ['#FF9E44', '#4E7BFF', '#14B87A', '#7B61FF', '#FF6A5F', '#F97316', '#0EA5E9'];
+  const raw = firstText(seed);
+  if (!raw) return palette[0];
+  let hash = 0;
+  for (let i = 0; i < raw.length; i += 1) hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length];
+}
+
+function normalizeReplyPolicy(policy = {}) {
+  const map = {};
+  const pick = (key) => (Array.isArray(policy[key]) ? uniqStrings(policy[key]).slice(0, 4) : []);
+  if (pick('when_value_high').length) map.ask_benefit_amount = pick('when_value_high');
+  if (pick('when_time_high').length) map.ask_process = pick('when_time_high');
+  if (pick('when_risk_high').length) map.raise_objection = pick('when_risk_high');
+  if (pick('when_value_resolved').length) map.delay_decision = pick('when_value_resolved');
+  if (pick('when_time_resolved').length) map.delay_decision = [...(map.delay_decision || []), ...pick('when_time_resolved')];
+  if (pick('when_risk_resolved').length) map.delay_decision = [...(map.delay_decision || []), ...pick('when_risk_resolved')];
+  if (map.delay_decision) map.delay_decision = uniqStrings(map.delay_decision).slice(0, 4);
+  return map;
+}
+
+function buildPersonaFromExternalAgent(agent = {}, idx = 0) {
+  const agentId = firstText(agent.agent_id || `external_agent_${idx + 1}`);
+  const agentName = firstText(agent.agent_name || `顾客画像${idx + 1}`);
+  const lines = Array.isArray(agent?.customer_profile?.initial_customer_lines)
+    ? agent.customer_profile.initial_customer_lines
+    : [];
+  const traits = Array.isArray(agent?.customer_profile?.typical_traits) ? agent.customer_profile.typical_traits : [];
+  const objections = Array.isArray(agent.primary_objections) ? agent.primary_objections : [];
+  const concerns = toConcernPriority(agent.initial_intents || {});
+  const state = agent.initial_state || {};
+  const trust = clamp(toInt(state.trust, 45), 0, 100);
+  const resistance = clamp(toInt(state.resistance, 58), 0, 100);
+  const timeBias = clamp(toInt(agent?.initial_intents?.time, 45), 0, 100);
+  const valueBias = clamp(toInt(agent?.initial_intents?.value, 60), 0, 100);
+  const budgetSensitivity = clamp(Math.round(45 + valueBias * 0.55), 35, 95);
+  const patience = clamp(Math.round(78 - timeBias * 0.45), 30, 85);
+  const interest = clamp(Math.round(95 - resistance * 0.55), 20, 80);
+  const opening = firstText(lines[0] || '');
+  const profileText = [agentName, ...traits, ...objections].filter(Boolean).join('；');
+  const replyOverride = normalizeReplyPolicy(agent.next_reply_policy || {});
+  const accent = hashAccentColor(agentId);
+
+  return {
+    id: agentId,
+    label: agentName,
+    customerName: `顾客${idx + 1}`,
+    customerProfile: profileText || agentName,
+    openingLine: opening || '先帮我结账。',
+    concernPriority: concerns,
+    memberStatusDefault: 'no_card',
+    defaultState: {
+      trust,
+      patience,
+      interest,
+      budgetSensitivity,
+      objectionLevel: resistance,
+    },
+    typicalObjections: uniqStrings(objections).slice(0, 6),
+    intentReplyOverrides: replyOverride,
+    visual: { skin: '#F2C7A8', hair: '#3E2F2B', outfit: '#7D98A6', accent },
+    source: agent.source || 'external_agent_config',
+  };
+}
+
+function applyExternalAgentConfig(raw = {}, sourcePath = '') {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.agents) || !raw.agents.length) return false;
+
+  const mappedPersonas = {};
+  raw.agents.forEach((agent, idx) => {
+    const persona = buildPersonaFromExternalAgent(agent, idx);
+    mappedPersonas[persona.id] = persona;
+  });
+  const nextIds = Object.keys(mappedPersonas);
+  if (!nextIds.length) return false;
+
+  CUSTOMER_PERSONAS = mappedPersonas;
+  PERSONA_IDS = nextIds;
+
+  const extIntent = raw.intent_engine || {};
+  const extThresholds = extIntent.thresholds || {};
+  const acceptBelow = clamp(toInt(extThresholds.accept_all_below, 35), 20, 50);
+  const resolved = clamp(toInt(extThresholds.resolved, 30), 20, acceptBelow);
+  INTENT_ENGINE_CONFIG = {
+    ...JSON.parse(JSON.stringify(BASE_INTENT_ENGINE_CONFIG)),
+    version: firstText(raw.version || BASE_INTENT_ENGINE_CONFIG.version || 'external'),
+    acceptThresholds: { value: acceptBelow, time: acceptBelow, risk: acceptBelow },
+    initialScores: {
+      value: clamp(Math.max(acceptBelow + 20, 68), resolved + 8, 95),
+      time: clamp(Math.max(acceptBelow + 18, 60), resolved + 8, 90),
+      risk: clamp(Math.max(acceptBelow + 18, 60), resolved + 8, 90),
+    },
+  };
+
+  const extKeywords = extIntent.keyword_map || {};
+  const hasExtKeywords = INTENT_TYPES.every((k) => Array.isArray(extKeywords[k]) && extKeywords[k].length);
+  AUTO_INTENT_KEYWORDS = hasExtKeywords
+    ? {
+      value: uniqStrings(extKeywords.value).slice(0, INTENT_ENGINE_CONFIG.maxKeywordPerIntent),
+      time: uniqStrings(extKeywords.time).slice(0, INTENT_ENGINE_CONFIG.maxKeywordPerIntent),
+      risk: uniqStrings(extKeywords.risk).slice(0, INTENT_ENGINE_CONFIG.maxKeywordPerIntent),
+    }
+    : buildIntentKeywordMapFromSurvey(STORE_MANAGER_SURVEY_SNIPPETS, INTENT_ENGINE_CONFIG);
+
+  EXTERNAL_SLOT_CONSTRAINTS = raw.slot_constraints || null;
+  EXTERNAL_SCORING_RUBRIC = raw.scoring_rubric || null;
+  EXTERNAL_AGENT_CONFIG_META = {
+    sourcePath,
+    scenarioId: firstText(raw.scenario_id),
+    scenarioName: firstText(raw.scenario_name),
+    generatedBasis: firstText(raw.generated_basis),
+    designPrinciple: firstText(raw.design_principle),
+    version: firstText(raw.version),
+    agentCount: nextIds.length,
+  };
+  return true;
+}
+
+function loadExternalAgentConfig() {
+  const preferred = firstText(process.env.CUSTOMER_AGENTS_FILE);
+  const candidates = [
+    preferred,
+    path.join(__dirname, 'data', 'customer_agents.json'),
+    path.join(__dirname, 'data', 'customer_agents.generated.json'),
+  ].filter(Boolean);
+
+  for (const filePath of candidates) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (applyExternalAgentConfig(raw, filePath)) return;
+    } catch {}
+  }
+}
+
+loadExternalAgentConfig();
+
 function resolvePersona(input = {}) {
   const personaId = typeof input === 'string' ? input : String(input.personaId || '');
   const customerName = typeof input === 'string' ? '' : firstText(input.customerName);
+  const firstPersona = PERSONA_IDS[0] ? CUSTOMER_PERSONAS[PERSONA_IDS[0]] : null;
 
   if (personaId && CUSTOMER_PERSONAS[personaId]) return CUSTOMER_PERSONAS[personaId];
 
@@ -376,7 +546,7 @@ function resolvePersona(input = {}) {
     if (byName) return byName;
   }
 
-  return CUSTOMER_PERSONAS[pickRandom(PERSONA_IDS)] || CUSTOMER_PERSONAS.price_sensitive;
+  return CUSTOMER_PERSONAS[pickRandom(PERSONA_IDS)] || firstPersona || BUILTIN_CUSTOMER_PERSONAS.price_sensitive;
 }
 
 function buildInitialCustomerState(personaInput = {}) {
@@ -1124,10 +1294,13 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
   };
 
   const personaMap = personaSpecific[persona.id] || {};
+  const externalMap = persona.intentReplyOverrides && typeof persona.intentReplyOverrides === 'object'
+    ? persona.intentReplyOverrides
+    : {};
   if (intent === 'ask_coupon_rule' && slots.missingRuleFacts.includes('effectiveTime')) {
     return common.ask_effective_time;
   }
-  return personaMap[intent] || common[intent] || ['你再说详细一点。'];
+  return externalMap[intent] || personaMap[intent] || common[intent] || ['你再说详细一点。'];
 }
 
 function buildTemplateCustomerReply(decision, context = {}) {
@@ -1422,6 +1595,8 @@ function buildPlaybook() {
     membershipFacts: MEMBERSHIP_FACTS,
     slotTable: SLOT_TABLE,
     decisionRules: DECISION_RULE_TABLE,
+    slotConstraints: EXTERNAL_SLOT_CONSTRAINTS || null,
+    scoringRubric: EXTERNAL_SCORING_RUBRIC || null,
     intentEngine: {
       intents: INTENT_TYPES.map((k) => ({ key: k, label: INTENT_LABEL[k] })),
       acceptThresholds: INTENT_ENGINE_CONFIG.acceptThresholds,
@@ -1433,12 +1608,15 @@ function buildPlaybook() {
     },
     surveyDataSample: STORE_MANAGER_SURVEY_SNIPPETS.slice(0, 24),
     annoyanceTriggers: ANNOYANCE_TRIGGER_TERMS.map((re) => re.source.replace(/\\/g, '')),
+    externalConfig: EXTERNAL_AGENT_CONFIG_META,
     personas: PERSONA_IDS.map((id) => {
       const p = CUSTOMER_PERSONAS[id];
       return {
         id: p.id,
         label: p.label,
         customerName: p.customerName,
+        openingLine: p.openingLine,
+        source: p.source || 'builtin',
         concernPriority: p.concernPriority,
         concernPriorityLabel: p.concernPriority.map((c) => CONCERN_LABEL[c] || c),
         typicalObjections: p.typicalObjections,

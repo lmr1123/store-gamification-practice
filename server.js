@@ -1086,6 +1086,9 @@ const server = http.createServer((req, res) => {
           annoyanceTriggers: playbook.annoyanceTriggers,
           intentEngine: playbook.intentEngine,
           surveyDataSample: playbook.surveyDataSample,
+          slotConstraints: playbook.slotConstraints || null,
+          scoringRubric: playbook.scoringRubric || null,
+          externalConfig: playbook.externalConfig || null,
         },
       });
     });

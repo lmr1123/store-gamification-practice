@@ -116,6 +116,23 @@
 - 修复优惠识别误判：结账金额（如“100元”）不再被当成“会员优惠量化信息”。
 - 优化重复改写策略：仅对高重复风险意图做改写，`delay_decision` 不再被错误替换成其它意图。
 
+### 2.12 本次新增（外部顾客Agent配置导入层）
+- 已支持从外部 JSON 自动加载顾客画像与意图引擎配置，默认路径：
+  - `data/customer_agents.json`
+  - 也支持环境变量覆盖：`CUSTOMER_AGENTS_FILE=/abs/path/to/file.json`
+- 已将你提供的数据文件纳入项目：
+  - `data/customer_agents.json`
+  - `data/customer_agents.README.md`
+- 导入能力包括：
+  - 6类顾客画像（`pos_member_*`）自动映射为系统可运行 persona
+  - `intent_engine.keyword_map` 自动接管意图关键词
+  - `intent_engine.thresholds.accept_all_below` 接管三意图接受阈值
+  - `slot_constraints` 与 `scoring_rubric` 在 `scenario-init.playbook` 中透出给前端/运营查看
+- 对话回复已支持外部 `next_reply_policy` 映射（例如 value/time/risk 高位时的典型回复）。
+- 已本地验证导入生效：
+  - `scenario-init` 可按 `personaId=pos_member_risk_privacy_001` 正常返回
+  - `playbook.externalConfig` 可见外部文件来源与版本信息
+
 ## 3. 已解决问题
 - 端口占用导致服务起不来（EADDRINUSE）已定位处理。
 - IAB/内嵌环境访问本地回环地址不稳定，已确认局域网地址可访问。
