@@ -663,6 +663,7 @@ function analyzeClerkBehavior(text = '') {
     mentionsGift: /礼品|赠品|免费送|花茶/.test(t),
     mentionsCoupon: /券|优惠券/.test(t),
     mentionsCheckout: /一共|合计|收您|结账|付款|支付|微信|支付宝|现金|刷卡|买单/.test(t),
+    checkoutAcknowledge: /好的|好|行|可以|收到|明白|那我给您结账|先帮您结账/.test(t),
     annoyanceWordsHit,
   };
 }
@@ -677,6 +678,7 @@ function inferMemberStatusByText(text = '') {
 function classifyCustomerIntentByText(text = '') {
   const t = firstText(text);
   if (!t) return 'unknown';
+  if (/付款|支付|微信|支付宝|先把这单结了|先结这单|先不聊办卡/.test(t)) return 'topic_switch';
   if (/没会员|没有会员|不是会员|有会员|有卡/.test(t)) return 'answer_member_status';
   if (/怎么用|门槛|满多少|减5|9\.9/.test(t)) return 'ask_coupon_rule';
   if (/当天|次日|明天|生效/.test(t)) return 'ask_effective_time';
@@ -1162,6 +1164,8 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
     decision = buildDecision('R00', 'ready_join', 'accept', '办理效率', '价值/时间/风险三类意图均已被解决。', 'happy');
   } else if (state.patience < 22 || state.annoyance > 78) {
     decision = buildDecision('R01', 'want_leave', 'reject', '时间成本', '耐心过低，倾向先结束对话。', 'annoyed');
+  } else if (lastIntent === 'topic_switch' && !hasNewBusinessInfo) {
+    decision = buildDecision('R01E', 'topic_switch', 'continue_talk', '先完成结账', '顾客已切换到收银主线，维持支付确认语义。', 'neutral');
   } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
     if (signal.mentionsCheckout) {
       decision = buildDecision('R01D', 'topic_switch', 'continue_talk', '先完成结账', '顾客已明确暂不办卡，当前进入收银支付流程。', 'neutral');

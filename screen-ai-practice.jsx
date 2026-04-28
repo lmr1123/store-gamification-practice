@@ -417,6 +417,10 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     intent = 'want_leave';
     reason = '耐心不足';
     keyConcern = '时间成本';
+  } else if (lastIntent === 'topic_switch' && !hasNewBusinessInfo) {
+    intent = 'topic_switch';
+    reason = '顾客已切到收银主线，继续支付确认';
+    keyConcern = '先完成结账';
   } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
     if (mentionsCheckout) {
       intent = 'topic_switch';
@@ -1016,7 +1020,7 @@ function AIPracticeScreen({ onComplete, onBack, avatarStyle = 'chibi' }) {
         turnResp = await callCustomerTurn({
           clerkText,
           customerState: customerStateRef.current,
-          history: conversationRef.current.slice(-8),
+          history: conversationRef.current.slice(-20),
           customerName: customerMeta.customerName || '王阿姨',
           personaId: customerMeta.personaId || '',
         });
