@@ -399,6 +399,36 @@ function DrillTab({ character, gs, onNav }) {
           </div>
         </div>
 
+        {/* 入门版AI对练 */}
+        <div
+          onClick={() => onNav('ai-lite')}
+          style={{
+            background: 'linear-gradient(135deg, #FFF8E8 0%, #FFE7BC 100%)',
+            borderRadius: 18,
+            padding: '14px 16px',
+            color: 'var(--ink-1)',
+            cursor: 'pointer',
+            marginBottom: 14,
+            boxShadow: '0 5px 0 #E9CA95, 0 10px 24px rgba(233,202,149,0.35)',
+            border: '1px solid rgba(233,202,149,0.75)',
+          }}
+          onPointerDown={e => e.currentTarget.style.cssText += 'transform:translateY(2px);box-shadow:0 2px 0 #E9CA95,0 6px 14px rgba(233,202,149,0.26)'}
+          onPointerUp={e => e.currentTarget.style.cssText = ''}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.68)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, flexShrink: 0 }}>🧩</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 900 }}>AI 入门版顾客对练</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.35 }}>更轻量的6轮训练，重点练“顾虑回应”</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <Pill style={{ background: '#fff6e2', borderColor: '#f0d7aa', color: '#A8761A' }}>5类顾客画像</Pill>
+                <Pill style={{ background: '#fff6e2', borderColor: '#f0d7aa', color: '#A8761A' }}>结束即反馈</Pill>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: '#A8761A' }}>进入 →</div>
+          </div>
+        </div>
+
         {/* 同伴对练 大卡 */}
         <div
           onClick={() => onNav('peer')}
@@ -837,9 +867,9 @@ function BottomNav({ tab, setTab }) {
 // ──────────────────────────────────────────────────────
 //  小工具组件
 // ──────────────────────────────────────────────────────
-function Pill({ children }) {
+function Pill({ children, style: st = {} }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#fff', borderRadius: 999, boxShadow: 'var(--shadow-card)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#fff', borderRadius: 999, boxShadow: 'var(--shadow-card)', ...st }}>
       {children}
     </div>
   );

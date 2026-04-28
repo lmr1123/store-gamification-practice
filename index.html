@@ -163,6 +163,7 @@ body { margin: 0; background: #0A0A0F; min-height: 100vh; display: flex; align-i
 <script type="text/babel" src="screen-story.jsx?v=9"></script>
 <script type="text/babel" src="screen-quiz.jsx?v=9"></script>
 <script type="text/babel" src="screen-ai-practice.jsx?v=14"></script>
+<script type="text/babel" src="screen-ai-lite-practice.jsx?v=1"></script>
 <script type="text/babel" src="screen-peer.jsx?v=9"></script>
 <script type="text/babel" src="screen-replay.jsx?v=11"></script>
 <script type="text/babel" src="screen-results.jsx?v=9"></script>
@@ -338,6 +339,9 @@ function ScreenRenderer() {
         onBack={pop}
       />
     ),
+    'ai-lite': (
+      <AILitePracticeScreen onBack={pop} />
+    ),
     peer: (
       <PeerMatchScreen
         avatarStyle={tweaks.avatarStyle}
@@ -402,11 +406,12 @@ function DevNav() {
     { key: 'story', label: '③剧情' },
     { key: 'quiz', label: '④题目' },
     { key: 'ai', label: '⑤AI练' },
-    { key: 'peer', label: '⑥同伴' },
-    { key: 'replay', label: '⑦回放' },
-    { key: 'results', label: '⑧结果' },
-    { key: 'profile', label: '⑨成长' },
-    { key: 'admin', label: '⑩后台' },
+    { key: 'ai-lite', label: '⑥入门练' },
+    { key: 'peer', label: '⑦同伴' },
+    { key: 'replay', label: '⑧回放' },
+    { key: 'results', label: '⑨结果' },
+    { key: 'profile', label: '⑩成长' },
+    { key: 'admin', label: '⑪后台' },
   ];
 
   return (

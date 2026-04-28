@@ -32,6 +32,61 @@ const DEFAULT_SCENARIO = {
   intro: '顾客把商品放在收银台，准备结账。',
 };
 
+const BEGINNER_SCENARIO = {
+  name: '收银场景·会员办卡（入门版）',
+  intro: '你正在连锁药店收银台结账，店员尝试邀请你办理会员。',
+};
+
+const BEGINNER_PERSONAS = {
+  privacy_concern: {
+    id: 'privacy_concern',
+    label: '隐私顾虑型顾客',
+    openingLine: '我不想留手机号。',
+    concern: '担心手机号被营销短信电话打扰、担心信息泄露。',
+    acceptLine: '那如果只是今天用优惠，不会一直打扰的话，可以办一下。',
+    rejectLine: '算了，我还是不留手机号了。',
+    roundLimit: 6,
+  },
+  value_disbelief: {
+    id: 'value_disbelief',
+    label: '价值不认同型顾客',
+    openingLine: '办会员有什么用？我平时也不怎么来。',
+    concern: '不知道会员具体价值，觉得不明确的权益不值得注册。',
+    acceptLine: '那今天能直接便宜的话，可以办一个。',
+    rejectLine: '听起来用处也不大，先不用了。',
+    roundLimit: 6,
+  },
+  time_pressure: {
+    id: 'time_pressure',
+    label: '时间紧张型顾客',
+    openingLine: '我赶时间，不办了，下次吧。',
+    concern: '不愿听长解释，希望尽快结账离开。',
+    acceptLine: '很快的话，那你帮我弄一下吧。',
+    rejectLine: '真来不及了，下次再说。',
+    roundLimit: 4,
+  },
+  bad_experience: {
+    id: 'bad_experience',
+    label: '负面经验型顾客',
+    openingLine: '以前办过会员，也没觉得有什么用。',
+    concern: '过去办会员体验差，不信优惠真实性，怕被套路。',
+    acceptLine: '那如果这次真的能直接用优惠，可以试一下。',
+    rejectLine: '算了，我之前办过也没用，不想再办。',
+    roundLimit: 6,
+  },
+  anti_sales: {
+    id: 'anti_sales',
+    label: '推销反感型顾客',
+    openingLine: '别推销了，我不办。',
+    concern: '对推销敏感，反复劝说会激怒，强调选择权才愿意听。',
+    acceptLine: '那你先说一下今天能省多少，合适我再看。',
+    rejectLine: '不用了，直接结账吧。',
+    roundLimit: 5,
+  },
+};
+
+const BEGINNER_PERSONA_IDS = Object.keys(BEGINNER_PERSONAS);
+
 const CUSTOMER_PERSONAS = {
   price_sensitive: {
     id: 'price_sensitive',
@@ -140,6 +195,196 @@ function writeJSON(res, statusCode, data) {
     'Access-Control-Allow-Origin': '*',
   });
   res.end(JSON.stringify(data));
+}
+
+function resolveBeginnerPersona(personaId = '') {
+  if (personaId && BEGINNER_PERSONAS[personaId]) return BEGINNER_PERSONAS[personaId];
+  const idx = Math.floor(Math.random() * BEGINNER_PERSONA_IDS.length);
+  return BEGINNER_PERSONAS[BEGINNER_PERSONA_IDS[idx]];
+}
+
+function getLastCustomerReply(conversation = []) {
+  const last = [...conversation].reverse().find((m) => m?.who === 'customer' && m?.text);
+  return String(last?.text || '').trim();
+}
+
+function buildBeginnerTurnPrompt({ persona, conversation, clerkText, round }) {
+  const historyText = (conversation || [])
+    .slice(-10)
+    .map((m) => `${m.who === 'clerk' ? '店员' : '顾客'}：${m.text}`)
+    .join('\n');
+
+  return `你正在扮演一名药店收银台顾客，与店员进行会员办卡对练。
+
+你的任务不是配合店员，而是像真实顾客一样自然反应。
+
+场景：
+- 地点：连锁药店收银台
+- 当前正在结账
+- 店员尝试邀请你办理会员
+- 你根据自己的顾虑与店员对话
+
+扮演规则：
+1. 回答必须真实顾客口吻，简短、自然、口语化。
+2. 每次回复1-2句话，不要长篇解释。
+3. 不要轻易同意办卡，除非店员回应了核心顾虑。
+4. 如果店员一味推销，表现抗拒。
+5. 如果店员先理解你、讲清价值、降低顾虑，可逐步缓和。
+6. 不要教学式回答，不要暴露你是AI。
+7. 不要输出评分。
+8. 对话总轮次控制在${persona.roundLimit}轮左右。
+9. 如果店员有压迫感、虚假承诺或让人不舒服，要更明确拒绝。
+
+顾客类型：${persona.label}
+核心顾虑：${persona.concern}
+开场白：${persona.openingLine}
+参考接受话术：${persona.acceptLine}
+参考拒绝话术：${persona.rejectLine}
+
+当前轮次：第${round}轮（店员发言后）
+店员本轮话术：${clerkText}
+最近对话：
+${historyText || '（无）'}
+
+请严格输出 JSON（不要输出其他内容）：
+{
+  "reply":"<顾客回复，1-2句，口语化>",
+  "emotion":"<neutral|curious|interested|annoyed|firm>",
+  "result":"<accept|hesitate|reject>",
+  "done":<true|false>
+}`;
+}
+
+function parseBeginnerTurn(raw, fallback) {
+  const parsed = extractJSONObject(raw);
+  if (!parsed || !parsed.reply) return fallback;
+  const emotion = ['neutral', 'curious', 'interested', 'annoyed', 'firm'].includes(parsed.emotion) ? parsed.emotion : fallback.emotion;
+  const result = ['accept', 'hesitate', 'reject'].includes(parsed.result) ? parsed.result : fallback.result;
+  return {
+    reply: String(parsed.reply || '').replace(/\s+/g, ' ').trim() || fallback.reply,
+    emotion,
+    result,
+    done: typeof parsed.done === 'boolean' ? parsed.done : fallback.done,
+  };
+}
+
+function buildBeginnerFallbackTurn({ persona, clerkText, conversation, round }) {
+  const t = String(clerkText || '').trim();
+  const last = getLastCustomerReply(conversation);
+  const hardSell = /必须|一定要|赶紧|立刻|不办就亏|马上办/.test(t);
+  const hasValue = /(立减|减|省).{0,6}\d+|会员价|优惠券|本单|便宜/.test(t);
+  const hasSpeed = /10秒|一分钟|很快|不耽误|马上/.test(t);
+  const hasPrivacy = /不会打扰|可关闭|仅用于|会员权益|电子小票|隐私|不泄露/.test(t);
+  const hasEmpathy = /理解|明白|您担心|我懂/.test(t);
+
+  let reply = '我再想想，先结账吧。';
+  let result = 'hesitate';
+  let emotion = 'neutral';
+
+  if (hardSell) {
+    reply = persona.rejectLine;
+    result = 'reject';
+    emotion = 'firm';
+  } else if (persona.id === 'time_pressure') {
+    if (hasSpeed && hasValue) {
+      reply = persona.acceptLine;
+      result = 'accept';
+      emotion = 'interested';
+    } else if (round >= 3) {
+      reply = persona.rejectLine;
+      result = 'reject';
+      emotion = 'firm';
+    } else {
+      reply = '不好意思，我真的赶时间。';
+      result = 'hesitate';
+      emotion = 'annoyed';
+    }
+  } else if (persona.id === 'privacy_concern') {
+    if (hasPrivacy && hasValue) {
+      reply = persona.acceptLine;
+      result = 'accept';
+      emotion = 'interested';
+    } else if (round >= persona.roundLimit) {
+      reply = persona.rejectLine;
+      result = 'reject';
+      emotion = 'firm';
+    } else {
+      reply = '那以后会不会一直发短信？';
+      result = 'hesitate';
+      emotion = 'curious';
+    }
+  } else if (hasEmpathy && hasValue) {
+    reply = persona.acceptLine;
+    result = 'accept';
+    emotion = 'interested';
+  } else if (round >= persona.roundLimit) {
+    reply = persona.rejectLine;
+    result = 'reject';
+    emotion = 'firm';
+  }
+
+  if (reply === last) reply = result === 'accept' ? '那你简单说下怎么操作。' : '先正常结账吧。';
+  return { reply, emotion, result, done: result !== 'hesitate' || round >= persona.roundLimit };
+}
+
+function buildBeginnerFeedbackPrompt(conversation = []) {
+  const dialog = (conversation || [])
+    .filter((m) => m.who === 'clerk' || m.who === 'customer')
+    .map((m) => `【${m.who === 'clerk' ? '店员' : '顾客'}】${m.text}`)
+    .join('\n');
+
+  return `你是药店店员培训教练。
+
+请根据以下对话记录，生成一份简短训练反馈。
+
+反馈要求：
+1. 不要太复杂，适合一线店员看。
+2. 分为：表现好的地方、需要改进的地方、下次建议话术。
+3. 不要使用复杂评分模型。
+4. 如果店员强推、过度承诺、没有回应顾客顾虑，要明确指出。
+5. 如果店员有先理解顾客、讲清价值、自然推进，要肯定。
+6. 最后给一个简单等级：优秀 / 良好 / 需改进。
+
+对话记录：
+${dialog}
+
+输出格式：
+
+【训练结果】
+等级：
+
+【做得好的地方】
+1.
+2.
+
+【需要改进的地方】
+1.
+2.
+
+【下次可以这样说】
+“……”`;
+}
+
+function buildBeginnerFeedbackFallback(conversation = []) {
+  const clerkLines = conversation.filter((m) => m.who === 'clerk').map((m) => String(m.text || ''));
+  const hasEmpathy = clerkLines.some((t) => /理解|明白|担心|放心/.test(t));
+  const hasValue = clerkLines.some((t) => /(立减|减|省).{0,6}\d+|会员价|优惠券/.test(t));
+  const hasPush = clerkLines.some((t) => /必须|一定要|赶紧|立刻|不办就亏/.test(t));
+  const hasRule = clerkLines.some((t) => /次日|生效|有效期|全场|门槛/.test(t));
+  const level = hasPush ? '需改进' : (hasEmpathy && hasValue && hasRule ? '优秀' : '良好');
+  return `【训练结果】
+等级：${level}
+
+【做得好的地方】
+1. ${hasEmpathy ? '有先理解顾客情绪，语气较自然。' : '沟通态度基本平稳。'}
+2. ${hasValue ? '有提到具体优惠价值，顾客更容易理解。' : '有尝试推进办卡话题。'}
+
+【需要改进的地方】
+1. ${hasPush ? '有强推倾向，容易引发顾客反感。' : '对顾客核心顾虑回应还不够精准。'}
+2. ${hasRule ? '规则有提及，但可以再简短清晰。' : '缺少“门槛/生效/范围”等关键规则说明。'}
+
+【下次可以这样说】
+“我理解您担心被打扰，这次只说重点：今天这单能省X元，流程30秒，不合适我们就正常结账。”`;
 }
 
 // ── 顾客状态（结构） ────────────────────────────
@@ -1047,6 +1292,87 @@ const server = http.createServer((req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     return res.end();
+  }
+
+  // ── API: 场景初始化 ───────────────────────────
+  if (req.method === 'POST' && pathname === '/api/beginner-init') {
+    return readJsonBody(req, (err, body) => {
+      if (err) return writeJSON(res, 400, { error: err.message });
+      const persona = resolveBeginnerPersona(String(body.personaId || ''));
+      return writeJSON(res, 200, {
+        scenario: BEGINNER_SCENARIO.name,
+        sceneIntro: BEGINNER_SCENARIO.intro,
+        roundLimit: persona.roundLimit || 6,
+        personas: BEGINNER_PERSONA_IDS.map((id) => ({
+          id,
+          label: BEGINNER_PERSONAS[id].label,
+          openingLine: BEGINNER_PERSONAS[id].openingLine,
+          concern: BEGINNER_PERSONAS[id].concern,
+        })),
+        persona: {
+          id: persona.id,
+          label: persona.label,
+          openingLine: persona.openingLine,
+          concern: persona.concern,
+          roundLimit: persona.roundLimit || 6,
+        },
+      });
+    });
+  }
+
+  // ── API: 入门版顾客回合（纯LLM顾客扮演）────────
+  if (req.method === 'POST' && pathname === '/api/beginner-turn') {
+    return readJsonBody(req, (err, body) => {
+      if (err) return writeJSON(res, 400, { error: err.message });
+
+      const persona = resolveBeginnerPersona(String(body.personaId || ''));
+      const clerkText = String(body.clerkText || '').trim();
+      const conversation = Array.isArray(body.conversation) ? body.conversation : [];
+      const round = Math.max(1, toInt(body.round, Math.floor(conversation.length / 2) + 1));
+      if (!clerkText) return writeJSON(res, 400, { error: 'clerkText required' });
+
+      const fallback = buildBeginnerFallbackTurn({ persona, clerkText, conversation, round });
+      if (!GLM_KEY) {
+        return writeJSON(res, 200, {
+          persona: { id: persona.id, label: persona.label },
+          round,
+          customerReply: fallback.reply,
+          emotion: fallback.emotion,
+          result: fallback.result,
+          done: fallback.done,
+        });
+      }
+
+      const prompt = buildBeginnerTurnPrompt({ persona, conversation, clerkText, round });
+      return glmSync([{ role: 'user', content: prompt }], (glmErr, content) => {
+        const parsed = glmErr ? fallback : parseBeginnerTurn(content, fallback);
+        const normalizedDone = parsed.done || parsed.result !== 'hesitate' || round >= (persona.roundLimit || 6);
+        return writeJSON(res, 200, {
+          persona: { id: persona.id, label: persona.label },
+          round,
+          customerReply: parsed.reply,
+          emotion: parsed.emotion,
+          result: parsed.result,
+          done: normalizedDone,
+        });
+      }, { temperature: 0.7, max_tokens: 220 });
+    });
+  }
+
+  // ── API: 入门版结束反馈 ───────────────────────
+  if (req.method === 'POST' && pathname === '/api/beginner-feedback') {
+    return readJsonBody(req, (err, body) => {
+      if (err) return writeJSON(res, 400, { error: err.message });
+      const conversation = Array.isArray(body.conversation) ? body.conversation : [];
+      const fallback = buildBeginnerFeedbackFallback(conversation);
+      if (!GLM_KEY) return writeJSON(res, 200, { feedback: fallback });
+
+      const prompt = buildBeginnerFeedbackPrompt(conversation);
+      return glmSync([{ role: 'user', content: prompt }], (glmErr, content) => {
+        const text = String((glmErr ? '' : content) || '').trim();
+        return writeJSON(res, 200, { feedback: text || fallback });
+      }, { temperature: 0.3, max_tokens: 700 });
+    });
   }
 
   // ── API: 场景初始化 ───────────────────────────
