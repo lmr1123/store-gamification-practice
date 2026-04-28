@@ -264,6 +264,7 @@ function buildDemoTurn(prevState, clerkText, history = []) {
   const mentionsExpiry = /一个月|30天|有效期/.test(text);
   const mentionsScope = /全场|通用|都能用|范围/.test(text);
   const mentionsProcess = processRegex.test(text);
+  const mentionsCheckout = /一共|合计|收您|结账|付款|支付|微信|支付宝|现金|刷卡|买单/.test(text);
   const hardSell = /必须|赶紧|一定要|立刻|不办就亏|你就办/.test(text);
   const vaguePitch = /很划算|很值|很优惠|特别好(?!.*\d)/.test(text);
   const hasEmpathy = /理解|明白|别着急|我帮您|放心/.test(text);
@@ -417,9 +418,15 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     reason = '耐心不足';
     keyConcern = '时间成本';
   } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
-    intent = 'want_leave';
-    reason = '已表达先结账，当前无新增价值信息';
-    keyConcern = '先完成结账';
+    if (mentionsCheckout) {
+      intent = 'topic_switch';
+      reason = '已明确暂不办卡，当前进入收银支付流程';
+      keyConcern = '先完成结账';
+    } else {
+      intent = 'delay_decision';
+      reason = '已表达先结账，当前无新增价值信息';
+      keyConcern = '先完成结账';
+    }
   } else if (longWinded && timePressure) {
     intent = 'interrupt_time';
     reason = '顾客打断，要求更短更快';
@@ -429,7 +436,11 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     reason = '顾客打断并进入防御';
     keyConcern = '担心被强推';
   } else if (processStageLock) {
-    if (timePressure || next.patience < 45) {
+    if (mentionsCheckout) {
+      intent = 'topic_switch';
+      reason = '已进入流程咨询后转入支付环节，不再重复拒绝';
+      keyConcern = '先完成结账';
+    } else if (timePressure || next.patience < 45) {
       intent = 'want_leave';
       reason = '已问流程且赶时间，优先先结账';
       keyConcern = '先完成收银';
@@ -547,7 +558,7 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     interrupt_time: ['您说重点，我有点赶时间。', '能简短点吗？我先结账。', '先说一句最关键的优惠。'],
     interrupt_risk: ['您别急着推，我先确认清楚。', '我担心有隐形条件，先说规则。', '先别催办卡，我想听明白。'],
-    topic_switch: ['先不聊办卡，我先结账。', '我先看这单金额，会员等会再说。'],
+    topic_switch: ['先把这单结了吧，我微信支付。', '这次先结账，会员下次再办。', '好，先付款，会员我先不办。'],
     ask_detail: ['除了立减，还有啥权益？', '那会员平时还能省什么？', '听着可以，还有别的好处吗？'],
   };
   const customerReply = pickVariant(replyMap[intent] || replyMap.ask_detail, history, next.turn + history.length);

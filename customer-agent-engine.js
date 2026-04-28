@@ -477,7 +477,7 @@ function analyzeClerkBehavior(text = '') {
     hasGreeting: /你好|您好|欢迎|光临|辛苦了/.test(t),
     asksNeed: /平时|经常|主要|需求|方便问|您一般|用不用|常买/.test(t),
     asksMember: /会员|会员卡|积分|权益|开卡|办卡/.test(t),
-    quantifiesBenefit: /(立减|直减|省)\s*\d|减\s*\d+\s*元|\d+\s*元|\d+\s*张|满\s*\d/.test(t),
+    quantifiesBenefit: /(立减|直减|省)\s*\d|减\s*\d+\s*元|\d+\s*张|满\s*\d|会员价.*\d|优惠券.*\d/.test(t),
     explainsRules: /次日|明天|生效|有效期|门槛|使用|到账|可用|全场/.test(t),
     explainsThreshold: /满\s*9\.?9|九点九|门槛|减5|5元/.test(t),
     explainsEffective: /次日|明天.*生效|第二天/.test(t),
@@ -492,6 +492,7 @@ function analyzeClerkBehavior(text = '') {
     longWinded: t.length > 58,
     mentionsGift: /礼品|赠品|免费送|花茶/.test(t),
     mentionsCoupon: /券|优惠券/.test(t),
+    mentionsCheckout: /一共|合计|收您|结账|付款|支付|微信|支付宝|现金|刷卡|买单/.test(t),
     annoyanceWordsHit,
   };
 }
@@ -882,7 +883,7 @@ function buildDecisionMetaByIntent(intent, prev = {}) {
     ask_process: { action: 'question', keyConcern: CONCERN_LABEL.convenience, emotion: 'interested' },
     interrupt_time: { action: 'question', keyConcern: CONCERN_LABEL.time, emotion: 'annoyed' },
     interrupt_risk: { action: 'question', keyConcern: CONCERN_LABEL.risk, emotion: 'annoyed' },
-    topic_switch: { action: 'question', keyConcern: '顾客临时换话题', emotion: 'curious' },
+    topic_switch: { action: 'continue_talk', keyConcern: '顾客临时换话题', emotion: 'neutral' },
     raise_objection: { action: 'question', keyConcern: CONCERN_LABEL.risk, emotion: 'annoyed' },
     delay_decision: { action: 'hesitate', keyConcern: CONCERN_LABEL.risk, emotion: 'neutral' },
     ready_join: { action: 'accept', keyConcern: '办理效率', emotion: 'happy' },
@@ -925,7 +926,7 @@ function avoidRepeatIntent(decision, state, slots) {
     'raise_objection',
   ];
   const shouldAvoid = loopSensitiveIntents.includes(decision.intent) && recent.includes(decision.intent);
-  if (!lastIntent || (!shouldAvoid && lastIntent !== decision.intent)) return decision;
+  if (!lastIntent || !shouldAvoid) return decision;
 
   const replacementChain = {
     ask_join_benefit: ['ask_benefit_amount', 'ask_coupon_rule', 'ask_process', 'delay_decision'],
@@ -952,7 +953,18 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
   const persona = resolvePersona(personaInput);
   const recentIntents = Array.isArray(state.intentHistory) ? state.intentHistory.slice(-4) : [];
   const lastIntent = recentIntents[recentIntents.length - 1] || slots.lastCustomerIntent;
-  const hasNewBusinessInfo = Boolean(
+  const checkoutOnlyLine = Boolean(
+    signal.mentionsCheckout
+    && !signal.asksMember
+    && !signal.mentionsCoupon
+    && !signal.explainsRules
+    && !signal.explainsThreshold
+    && !signal.explainsEffective
+    && !signal.explainsExpiry
+    && !signal.explainsScope
+    && !signal.mentionsProcess
+  );
+  const hasNewBusinessInfo = !checkoutOnlyLine && Boolean(
     signal.quantifiesBenefit
     || signal.explainsRules
     || signal.explainsThreshold
@@ -981,13 +993,19 @@ function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
   } else if (state.patience < 22 || state.annoyance > 78) {
     decision = buildDecision('R01', 'want_leave', 'reject', '时间成本', '耐心过低，倾向先结束对话。', 'annoyed');
   } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
-    decision = buildDecision('R01B', 'want_leave', 'reject', '先完成结账', '顾客已明确先结账，当前未出现新增价值信息。', 'neutral');
+    if (signal.mentionsCheckout) {
+      decision = buildDecision('R01D', 'topic_switch', 'continue_talk', '先完成结账', '顾客已明确暂不办卡，当前进入收银支付流程。', 'neutral');
+    } else {
+      decision = buildDecision('R01B', 'delay_decision', 'hesitate', '先完成结账', '顾客已明确先结账，当前未出现新增价值信息。', 'neutral');
+    }
   } else if (signal.longWinded && slots.timePressure) {
     decision = buildDecision('R01C', 'interrupt_time', 'question', CONCERN_LABEL.time, '顾客打断并要求更高沟通效率。', 'annoyed');
   } else if (signal.hardSell || slots.annoyanceTriggered) {
     decision = buildDecision('R08', 'interrupt_risk', 'question', CONCERN_LABEL.risk, '顾客对推销感敏感，先进入防御模式。', 'annoyed');
   } else if (processStageLock) {
-    if (slots.timePressure || state.patience < 45) {
+    if (signal.mentionsCheckout) {
+      decision = buildDecision('R13C', 'topic_switch', 'continue_talk', '先完成结账', '顾客已进入流程咨询后转入支付环节，不再重复拒绝。', 'neutral');
+    } else if (slots.timePressure || state.patience < 45) {
       decision = buildDecision('R13B', 'want_leave', 'reject', '先完成结账', '顾客已问办理流程，但当前更倾向先完成结账。', 'neutral');
     } else {
       decision = buildDecision('R13', 'delay_decision', 'hesitate', '办理效率', '顾客已进入办理咨询阶段，默认不回跳到旧价值异议。', 'neutral');
@@ -1097,7 +1115,7 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
     ask_process: ['那具体怎么操作办卡？', '是扫码加微信就行吗？', '办卡流程几步能完成？'],
     interrupt_time: ['您说重点，我有点赶时间。', '能简短点吗？我先结账。', '先说一句最关键的优惠。'],
     interrupt_risk: ['您别急着推，我先确认清楚。', '我担心有隐形条件，先说规则。', '先别催办卡，我想听明白。'],
-    topic_switch: ['先不聊办卡，我这药怎么结账？', '我先确认这单金额，再说会员。'],
+    topic_switch: ['先把这单结了吧，我微信支付。', '这次先结账，会员下次再办。', '好，先付款，会员我先不办。'],
     raise_objection: ['我主要担心信息会不会泄露。', '办了会不会总给我发骚扰信息？', '先说清楚隐私和打扰问题。'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通。', '那就办吧，你带我操作。'],
@@ -1328,7 +1346,7 @@ function isReplyAlignedWithIntent(replyInput, intent) {
     ask_process: /(怎么|流程|扫码|操作|授权)/,
     interrupt_time: /(快点|简短|重点|先结账|赶时间)/,
     interrupt_risk: /(别急|先确认|隐形条件|先说清楚|别催)/,
-    topic_switch: /(先结账|金额|收银|先不聊办卡)/,
+    topic_switch: /(先结账|金额|收银|先不聊办卡|付款|支付|微信|支付宝)/,
     raise_objection: /(担心|隐藏|别急|推销|靠谱不)/,
     delay_decision: /(再想想|先结账|先不急|改天)/,
     ready_join: /(帮我办|现在办|开通|行，那办)/,
