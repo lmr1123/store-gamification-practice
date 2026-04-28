@@ -316,10 +316,24 @@ function buildDemoTurn(prevState, clerkText, history = []) {
   let intent = 'ask_benefit_amount';
   let reason = '还需要确认本单价值';
   let keyConcern = '本单到底能省多少';
+  const recentIntents = Array.isArray(state.intentHistory) ? state.intentHistory.slice(-4) : [];
+  const lastIntent = recentIntents[recentIntents.length - 1] || '';
+  const hasNewBusinessInfo = Boolean(
+    mentionsBenefit
+    || mentionsThreshold
+    || mentionsEffective
+    || mentionsExpiry
+    || mentionsScope
+    || mentionsProcess
+  );
   if (next.patience < 25 || next.annoyance > 78) {
     intent = 'want_leave';
     reason = '耐心不足';
     keyConcern = '时间成本';
+  } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
+    intent = 'want_leave';
+    reason = '已表达先结账，当前无新增价值信息';
+    keyConcern = '先完成结账';
   } else if (asksMember && state.memberStatus === 'unknown') {
     intent = 'answer_member_status_no_card';
     reason = '先回应有没有会员';
@@ -358,7 +372,6 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     keyConcern = '办理效率';
   }
 
-  const recentIntents = Array.isArray(state.intentHistory) ? state.intentHistory.slice(-4) : [];
   const loopSensitiveIntents = [
     'ask_join_benefit',
     'ask_benefit_amount',
@@ -398,7 +411,7 @@ function buildDemoTurn(prevState, clerkText, history = []) {
     ask_scope: ['是不是全场都能用？', '哪些商品可以用这个券？', '这个券全场通用吗？'],
     ask_process: ['办理要怎么操作？', '流程几步能办好？', '是扫码加微信就行吗？'],
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通吧。'],
-    want_leave: ['我赶时间，先不用了。', '今天先不办，先结账吧。'],
+    want_leave: ['我赶时间，先不用了。', '今天先不办，先结账吧。', '嗯，先把账结了。'],
     ask_rule: ['这券具体怎么用啊？', '这个优惠是当天就能用吗？', '有使用门槛吗？'],
     raise_objection: ['办了会不会不划算？', '这个卡不会有隐藏条件吧？'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],

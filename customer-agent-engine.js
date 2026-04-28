@@ -582,10 +582,23 @@ function avoidRepeatIntent(decision, state, slots) {
 
 function decideCustomerAction({ state, signal, slots, personaInput = {} }) {
   const persona = resolvePersona(personaInput);
+  const recentIntents = Array.isArray(state.intentHistory) ? state.intentHistory.slice(-4) : [];
+  const lastIntent = recentIntents[recentIntents.length - 1] || slots.lastCustomerIntent;
+  const hasNewBusinessInfo = Boolean(
+    signal.quantifiesBenefit
+    || signal.explainsRules
+    || signal.explainsThreshold
+    || signal.explainsEffective
+    || signal.explainsExpiry
+    || signal.explainsScope
+    || signal.mentionsProcess
+  );
 
   let decision;
   if (state.patience < 22 || state.annoyance > 78) {
     decision = buildDecision('R01', 'want_leave', 'reject', '时间成本', '耐心过低，倾向先结束对话。', 'annoyed');
+  } else if ((lastIntent === 'delay_decision' || lastIntent === 'want_leave') && !hasNewBusinessInfo) {
+    decision = buildDecision('R01B', 'want_leave', 'reject', '先完成结账', '顾客已明确先结账，当前未出现新增价值信息。', 'neutral');
   } else if (slots.memberAsked && !slots.memberStatusKnown) {
     const isHasCard = (persona.memberStatusDefault || 'no_card') === 'has_card';
     decision = buildDecision(
@@ -649,7 +662,7 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
     },
     young_white_collar: {
       ask_process: ['流程几步？能快点吗？', '怎么操作最省时间？'],
-      want_leave: ['我赶时间，先不用了。', '先结账，下次再说吧。'],
+      want_leave: ['我赶时间，先不用了。', '先结账，下次再说吧。', '嗯先结账，今天就不办了。'],
     },
     mom_with_kid: {
       ask_scope: ['儿童用品也能用这券吗？', '给孩子买药也可以抵扣吗？'],
@@ -657,7 +670,7 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
     },
     hurry_checkout: {
       ask_process: ['你说最短流程，几步办完？', '别绕，怎么最快办好？'],
-      want_leave: ['我赶时间，先结账。', '今天先不办，太着急了。'],
+      want_leave: ['我赶时间，先结账。', '今天先不办，太着急了。', '先把账结了，办卡改天。'],
     },
   };
 
@@ -674,7 +687,7 @@ function buildReplyOptionsByPersona(intent, persona, slots) {
     raise_objection: ['听着像推销，我有点担心。', '会不会有隐藏条件？', '别急着让我办，先说清楚。'],
     delay_decision: ['我再想想，先把账结了。', '先不急，我再确认下。'],
     ready_join: ['行，那你帮我办一下吧。', '可以，现在就开通。', '那就办吧，你带我操作。'],
-    want_leave: ['我赶时间，先不用了。', '今天先不办，先结账。'],
+    want_leave: ['我赶时间，先不用了。', '今天先不办，先结账。', '嗯，先把账结了。'],
     share_needs: ['我平时买常备药比较多。', '我主要是给家里备药。', '我来店里买药频次还挺高。'],
   };
 
